@@ -1,0 +1,6 @@
+interface:
+  display_name: "Plan Forge"
+  short_description: "Adversarial plan review before coding."
+  default_prompt: "Use $plan-forge to structure this requirement, confirm expected spend, and run an adversarial implementation-plan review."
+policy:
+  allow_implicit_invocation: true

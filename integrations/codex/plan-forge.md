@@ -1,10 +1,15 @@
-# /plan-forge — adversarial plan review
+---
+description: Run plan-forge adversarial implementation-plan review between Claude Code and Codex
+argument-hint: REQUIREMENT
+---
+
+# plan-forge — adversarial plan review
 
 You are orchestrating the `plan-forge` CLI (https://github.com/haywoodfu/plan-forge):
 an author/reviewer loop between Claude Code and Codex. You operate the CLI;
 you never author or review the plan yourself.
 
-The text after the command is the user's raw requirement: $ARGUMENTS
+The text after `/prompts:plan-forge` is the user's raw requirement: $ARGUMENTS
 
 Follow these steps strictly:
 

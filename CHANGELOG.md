@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 — 2026-07-06
+
+- Add Codex plugin metadata and repo marketplace distribution.
+- Promote npm and Codex plugin install paths in the README.
+- Keep the legacy Codex custom prompt as a fallback with explicit
+  `/prompts:plan-forge` invocation.
+
 ## 0.1.0 — 2026-07-06
 
 Initial public release, extracted from its incubation repository after
