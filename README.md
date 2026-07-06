@@ -1,7 +1,7 @@
 # plan-forge
 
 [![ci](https://github.com/haywoodfu/plan-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/haywoodfu/plan-forge/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/plan-forge)](https://www.npmjs.com/package/plan-forge)
+[![npm](https://img.shields.io/npm/v/%40haywood%2Fplan-forge)](https://www.npmjs.com/package/@haywood/plan-forge)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 Adversarial plan review between AI coding agents. One model drafts a complete
@@ -61,8 +61,8 @@ Then use `/plan-forge <your requirement>` in any session.
 **From npm** (CLI usage, or to try it with zero setup):
 
 ```bash
-npx plan-forge doctor
-npm install -g plan-forge   # optional: a global `plan-forge` command
+npx @haywood/plan-forge doctor
+npm install -g @haywood/plan-forge   # installs a global `plan-forge` command
 ```
 
 **As a plain skills-directory clone**:

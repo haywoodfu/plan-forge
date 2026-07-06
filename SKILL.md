@@ -15,7 +15,7 @@ author or reviewer yourself, and the model subprocesses run read-only.
    directory containing `cli.mjs`: it is the directory of this SKILL.md for a
    skills-directory clone, or two levels up (the plugin root) when installed
    as a plugin. Run `node <plan-forge-root>/cli.mjs doctor` (or
-   `plan-forge doctor` / `npx plan-forge doctor` if installed from npm). All
+   `plan-forge doctor` / `npx @haywood/plan-forge doctor` if installed from npm). All
    checks must pass — it verifies both provider CLIs exist and support every
    flag the adapters need, without spending any tokens. If it reports `ajv`
    as not resolvable, run `npm install` in the plan-forge root once.
