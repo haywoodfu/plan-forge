@@ -7,7 +7,7 @@ import { acquireTaskLock, atomicWriteJson, taskPaths, validateTaskId } from '../
 
 test('task ids reject traversal and task locks reject live concurrent owners', async (t) => {
   assert.throws(() => validateTaskId('../escape'), /task id/);
-  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'plan-review-lock-'));
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'plan-forge-lock-'));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
   const paths = taskPaths(root, 'lock-test');
   const release = await acquireTaskLock(paths);
@@ -18,7 +18,7 @@ test('task ids reject traversal and task locks reject live concurrent owners', a
 });
 
 test('dead local lock owners are reclaimed', async (t) => {
-  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'plan-review-stale-lock-'));
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'plan-forge-stale-lock-'));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
   const paths = taskPaths(root, 'stale-lock');
   await fsp.mkdir(paths.lock, { recursive: true });

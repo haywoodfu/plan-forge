@@ -18,7 +18,7 @@ test('connection failures during sleep/wake cycles classify as retryable', () =>
 });
 
 test('task logger mirrors stage and provider stderr to terminal and run.log', async (t) => {
-  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'plan-review-log-'));
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'plan-forge-log-'));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
   let terminal = '';
   const logger = createTaskLogger({

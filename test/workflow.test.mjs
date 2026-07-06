@@ -73,7 +73,7 @@ test('approval and all derived projections recover without provider calls', asyn
   const result = await runWorkflow(args);
   assert.equal(result.status, 'approved');
 
-  const taskDir = path.join(repoRoot, '.ai', 'plan-reviews', 'workflow');
+  const taskDir = path.join(repoRoot, '.plan-forge', 'workflow');
   const publishedPath = path.join(repoRoot, 'docs', 'plans', 'workflow.md');
   const published = await fsp.readFile(publishedPath, 'utf8');
   assert.match(published, /^<!-- plan-review: task=workflow round=1 author=claude reviewer=codex /);
@@ -105,7 +105,7 @@ test('failure artifacts rebuild provider failure limit after state loss', async 
   const reviewer = fakeProvider('codex', []);
   const args = await runtime(repoRoot, author, reviewer);
   await assert.rejects(() => runWorkflow(args), /permanent failure/);
-  const statePath = path.join(repoRoot, '.ai', 'plan-reviews', 'workflow', 'state.json');
+  const statePath = path.join(repoRoot, '.plan-forge', 'workflow', 'state.json');
   await fsp.rm(statePath, { force: true });
   const second = await runWorkflow(args);
   assert.equal(second.status, 'needs_human');
@@ -180,7 +180,7 @@ test('resume-time setting overrides persist into task.json', async (t) => {
   const repoRoot = await tempRepo();
   t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
   await initTask(repoRoot, 'workflow');
-  const before = JSON.parse(await fsp.readFile(path.join(repoRoot, '.ai', 'plan-reviews', 'workflow', 'task.json'), 'utf8'));
+  const before = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'task.json'), 'utf8'));
   assert.equal(before.authorEffort, 'xhigh');
   assert.equal(before.reviewerEffort, 'high');
   const updated = await updateTaskSettings({ repoRoot, taskId: 'workflow', reviewerTimeoutMs: 1800000, reviewerEffort: 'xhigh' });
@@ -189,7 +189,7 @@ test('resume-time setting overrides persist into task.json', async (t) => {
   assert.equal(updated.authorTimeoutMs, before.authorTimeoutMs);
   assert.equal(updated.authorEffort, 'xhigh');
   assert.equal(updated.requirementSha256, before.requirementSha256);
-  const persisted = JSON.parse(await fsp.readFile(path.join(repoRoot, '.ai', 'plan-reviews', 'workflow', 'task.json'), 'utf8'));
+  const persisted = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'task.json'), 'utf8'));
   assert.equal(persisted.reviewerTimeoutMs, 1800000);
   assert.equal(persisted.reviewerEffort, 'xhigh');
   await assert.rejects(
@@ -232,6 +232,6 @@ test('human override closes a blocker without rewriting review history', async (
   assert.equal(approved.status, 'approved');
   assert.equal(author.calls, 1);
   assert.equal(reviewer.calls, 1);
-  const review = JSON.parse(await fsp.readFile(path.join(repoRoot, '.ai', 'plan-reviews', 'workflow', 'rounds', '001', 'review.json')));
+  const review = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'rounds', '001', 'review.json')));
   assert.equal(review.review.newFindings[0].id, 'F001');
 });

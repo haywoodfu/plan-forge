@@ -45,7 +45,7 @@ function numberOption(values, key, fallback) {
 
 function repositoryRoot() {
   const result = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-  if (result.status !== 0) throw new Error('plan-review must run inside a Git repository');
+  if (result.status !== 0) throw new Error('plan-forge must run inside a Git repository');
   return result.stdout.trim();
 }
 
@@ -127,7 +127,7 @@ function printStatus(status) {
 async function main() {
   const { command, values } = parseArgs(process.argv.slice(2));
   if (!command || command === '--help' || values.help) {
-    process.stdout.write('Usage: cli.mjs <run|resume|status|show|override|doctor> --task <id> [options]\n');
+    process.stdout.write('Usage: plan-forge <run|resume|status|show|override|doctor> --task <id> [options]\n');
     return;
   }
   if (command === 'doctor') {
@@ -169,7 +169,7 @@ async function main() {
       });
       logger.stage('task initialized', { requirement: values.requirement });
       if (!(await runtimeDirIgnored(repoRoot))) {
-        logger.error('warning: .ai/plan-reviews/ is not covered by .gitignore — runtime artifacts will show up in git status');
+        logger.error('warning: .plan-forge/ is not covered by .gitignore — runtime artifacts will show up in git status');
       }
       printStatus(await executeTask(repoRoot, taskId, logger));
       return;
@@ -230,6 +230,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`plan-review: ${error.message}\n`);
+  process.stderr.write(`plan-forge: ${error.message}\n`);
   process.exitCode = 1;
 });
