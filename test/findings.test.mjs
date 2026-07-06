@@ -40,6 +40,35 @@ test('normalization assigns IDs and validates computed verdict', () => {
   assert.equal(result.normalized.newFindings[0].id, 'F001');
 });
 
+test('redundant effectiveSeverity echoes normalize to null; real unrequested changes reject', () => {
+  const round1 = wrapper(1, [], [finding]);
+  const base = { id: 'F001', explanation: 'checked' };
+  const run = (disposition) => normalizeReviewerOutput(
+    { verdict: 'approved', previousFindings: [disposition], newFindings: [], summary: '' },
+    { round: 2, priorReviews: [round1], overrides: emptyOverrides }
+  );
+
+  const resolvedEcho = run({ ...base, status: 'resolved', effectiveSeverity: 'blocker' });
+  assert.equal(resolvedEcho.normalized.previousFindings[0].effectiveSeverity, null);
+  assert.equal(resolvedEcho.coercions.length, 1);
+
+  const openEcho = normalizeReviewerOutput(
+    {
+      verdict: 'changes_requested',
+      previousFindings: [{ ...base, status: 'still_open', effectiveSeverity: 'blocker' }],
+      newFindings: [],
+      summary: ''
+    },
+    { round: 2, priorReviews: [round1], overrides: emptyOverrides }
+  );
+  assert.equal(openEcho.normalized.previousFindings[0].effectiveSeverity, null);
+
+  assert.throws(
+    () => run({ ...base, status: 'still_open', effectiveSeverity: 'minor' }),
+    /without status severity_changed/
+  );
+});
+
 test('author resolutions must cover required findings but may include extras', () => {
   const required = [{ id: 'F001' }];
   const covered = { findingId: 'F001', action: 'accepted', changedSections: ['Implementation'], explanation: 'fixed' };

@@ -9,7 +9,7 @@ import { createClaudeProvider } from './lib/providers/claude.mjs';
 import { createCodexProvider } from './lib/providers/codex.mjs';
 import { loadPromptTemplates } from './lib/prompts.mjs';
 import { loadSchemas } from './lib/schema.mjs';
-import { applyOverride, clearFailures, initializeTask, inspectTask, readFinal, runWorkflow, updateTaskTimeouts } from './lib/workflow.mjs';
+import { applyOverride, clearFailures, initializeTask, inspectTask, readFinal, resolveEffort, runWorkflow, updateTaskSettings } from './lib/workflow.mjs';
 
 const toolRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,9 +52,9 @@ function requireTask(values) {
   return validateTaskId(values.task);
 }
 
-function providerFor(name, { repoRoot, model, budget }) {
-  if (name === 'codex') return createCodexProvider({ repoRoot, model });
-  if (name === 'claude') return createClaudeProvider({ repoRoot, model, maxBudgetUsd: budget });
+function providerFor(name, { repoRoot, model, budget, effort }) {
+  if (name === 'codex') return createCodexProvider({ repoRoot, model, effort });
+  if (name === 'claude') return createClaudeProvider({ repoRoot, model, maxBudgetUsd: budget, effort });
   throw new Error(`unsupported provider ${name}`);
 }
 
@@ -72,12 +72,14 @@ async function buildRuntime(repoRoot, task) {
       author: providerFor(task.author, {
         repoRoot,
         model: task.authorModel,
-        budget: task.author === 'claude' ? task.claudeAuthorMaxBudgetUsd : null
+        budget: task.author === 'claude' ? task.claudeAuthorMaxBudgetUsd : null,
+        effort: resolveEffort(task.author, task.authorEffort ?? null)
       }),
       reviewer: providerFor(task.reviewer, {
         repoRoot,
         model: task.reviewerModel,
-        budget: task.reviewer === 'claude' ? task.claudeReviewerMaxBudgetUsd : null
+        budget: task.reviewer === 'claude' ? task.claudeReviewerMaxBudgetUsd : null,
+        effort: resolveEffort(task.reviewer, task.reviewerEffort ?? null)
       })
     }
   };
@@ -97,10 +99,12 @@ function taskOptions(values) {
     reviewer,
     authorModel: values['author-model'] || null,
     reviewerModel: values['reviewer-model'] || null,
+    authorEffort: values['author-effort'] || null,
+    reviewerEffort: values['reviewer-effort'] || null,
     maxRounds: numberOption(values, 'max-rounds', 6),
     maxProviderFailures: numberOption(values, 'max-provider-failures', 2),
     authorTimeoutMs: numberOption(values, 'author-timeout', 1200) * 1000,
-    reviewerTimeoutMs: numberOption(values, 'reviewer-timeout', 600) * 1000,
+    reviewerTimeoutMs: numberOption(values, 'reviewer-timeout', 1200) * 1000,
     claudeAuthorMaxBudgetUsd: values['claude-author-max-budget-usd'] == null
       ? null : numberOption(values, 'claude-author-max-budget-usd', null),
     claudeReviewerMaxBudgetUsd: values['claude-reviewer-max-budget-usd'] == null
@@ -159,11 +163,15 @@ async function main() {
     if (command === 'resume') {
       const authorTimeoutMs = values['author-timeout'] == null ? null : numberOption(values, 'author-timeout', null) * 1000;
       const reviewerTimeoutMs = values['reviewer-timeout'] == null ? null : numberOption(values, 'reviewer-timeout', null) * 1000;
-      if (authorTimeoutMs != null || reviewerTimeoutMs != null) {
-        const updated = await updateTaskTimeouts({ repoRoot, taskId, authorTimeoutMs, reviewerTimeoutMs });
-        logger.stage('task timeouts updated', {
+      const authorEffort = values['author-effort'] || null;
+      const reviewerEffort = values['reviewer-effort'] || null;
+      if (authorTimeoutMs != null || reviewerTimeoutMs != null || authorEffort != null || reviewerEffort != null) {
+        const updated = await updateTaskSettings({ repoRoot, taskId, authorTimeoutMs, reviewerTimeoutMs, authorEffort, reviewerEffort });
+        logger.stage('task settings updated', {
           authorTimeoutMs: updated.authorTimeoutMs,
-          reviewerTimeoutMs: updated.reviewerTimeoutMs
+          reviewerTimeoutMs: updated.reviewerTimeoutMs,
+          authorEffort: updated.authorEffort,
+          reviewerEffort: updated.reviewerEffort
         });
       }
       if (values['clear-failures']) {

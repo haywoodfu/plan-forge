@@ -5,7 +5,7 @@ import test from 'node:test';
 import { ProviderError } from '../lib/process.mjs';
 import { loadPromptTemplates } from '../lib/prompts.mjs';
 import { loadSchemas } from '../lib/schema.mjs';
-import { applyOverride, clearFailures, inspectTask, runWorkflow, updateTaskTimeouts } from '../lib/workflow.mjs';
+import { applyOverride, clearFailures, inspectTask, resolveEffort, runWorkflow, updateTaskSettings } from '../lib/workflow.mjs';
 import { fakeProvider, initTask, plan, tempRepo, toolRoot } from './helpers.mjs';
 
 function newBlocker() {
@@ -74,8 +74,14 @@ test('approval and all derived projections recover without provider calls', asyn
   assert.equal(result.status, 'approved');
 
   const taskDir = path.join(repoRoot, '.ai', 'plan-reviews', 'workflow');
+  const publishedPath = path.join(repoRoot, 'docs', 'plans', 'workflow.md');
+  const published = await fsp.readFile(publishedPath, 'utf8');
+  assert.match(published, /^<!-- plan-review: task=workflow round=1 author=claude reviewer=codex /);
+  assert.match(published, /# Approved/);
+
   await fsp.rm(path.join(taskDir, 'state.json'));
   await fsp.rm(path.join(taskDir, 'final.md'));
+  await fsp.rm(publishedPath);
   await fsp.rm(path.join(taskDir, 'rounds', '001', 'plan.md'));
   await fsp.rm(path.join(taskDir, 'rounds', '001', 'resolution.json'));
   await fsp.rm(path.join(taskDir, 'rounds', '001', 'manifest.json'));
@@ -85,6 +91,7 @@ test('approval and all derived projections recover without provider calls', asyn
   assert.equal(reviewer.calls, 1);
   assert.match(await fsp.readFile(path.join(taskDir, 'final.md'), 'utf8'), /# Approved/);
   assert.match(await fsp.readFile(path.join(taskDir, 'rounds', '001', 'plan.md'), 'utf8'), /# Approved/);
+  assert.equal(await fsp.readFile(publishedPath, 'utf8'), published);
   const manifest = JSON.parse(await fsp.readFile(path.join(taskDir, 'rounds', '001', 'manifest.json'), 'utf8'));
   assert.equal(manifest.round, 1);
 });
@@ -154,17 +161,36 @@ test('status reports the pending review phase after the author commits', async (
   assert.equal(status.status, 'failed');
 });
 
-test('resume-time timeout overrides persist into task.json', async (t) => {
+test('resume-time setting overrides persist into task.json', async (t) => {
   const repoRoot = await tempRepo();
   t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
   await initTask(repoRoot, 'workflow');
   const before = JSON.parse(await fsp.readFile(path.join(repoRoot, '.ai', 'plan-reviews', 'workflow', 'task.json'), 'utf8'));
-  const updated = await updateTaskTimeouts({ repoRoot, taskId: 'workflow', reviewerTimeoutMs: 1800000 });
+  assert.equal(before.authorEffort, 'xhigh');
+  assert.equal(before.reviewerEffort, 'high');
+  const updated = await updateTaskSettings({ repoRoot, taskId: 'workflow', reviewerTimeoutMs: 1800000, reviewerEffort: 'xhigh' });
   assert.equal(updated.reviewerTimeoutMs, 1800000);
+  assert.equal(updated.reviewerEffort, 'xhigh');
   assert.equal(updated.authorTimeoutMs, before.authorTimeoutMs);
+  assert.equal(updated.authorEffort, 'xhigh');
   assert.equal(updated.requirementSha256, before.requirementSha256);
   const persisted = JSON.parse(await fsp.readFile(path.join(repoRoot, '.ai', 'plan-reviews', 'workflow', 'task.json'), 'utf8'));
   assert.equal(persisted.reviewerTimeoutMs, 1800000);
+  assert.equal(persisted.reviewerEffort, 'xhigh');
+  await assert.rejects(
+    () => updateTaskSettings({ repoRoot, taskId: 'workflow', reviewerEffort: 'max' }),
+    /invalid effort "max" for codex/
+  );
+});
+
+test('effort resolution applies per-provider defaults and enums', () => {
+  assert.equal(resolveEffort('claude', null), 'xhigh');
+  assert.equal(resolveEffort('codex', null), 'high');
+  assert.equal(resolveEffort('claude', 'max'), 'max');
+  assert.equal(resolveEffort('codex', 'none'), 'none');
+  assert.throws(() => resolveEffort('claude', 'none'), /invalid effort "none" for claude/);
+  assert.throws(() => resolveEffort('codex', 'max'), /invalid effort "max" for codex/);
+  assert.throws(() => resolveEffort('gemini', 'high'), /unsupported provider/);
 });
 
 test('human override closes a blocker without rewriting review history', async (t) => {
