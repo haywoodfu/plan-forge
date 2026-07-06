@@ -24,6 +24,12 @@ author drafts plan ──► reviewer files findings ──► blocker/major ope
                                                     docs/plans/<task>.md
 ```
 
+**See a real run**: [`docs/plans/inject-context.md`](./docs/plans/inject-context.md)
+is plan-forge planning its own `--inject` feature — Codex authored, Claude
+reviewed at `xhigh`, approved with four non-blocking findings. The file is the
+tool's verbatim published archive: provenance header, full plan, frozen
+requirement appendix.
+
 ## Why
 
 Single-model plans have single-model blind spots. In real use, the reviewing
