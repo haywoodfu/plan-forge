@@ -1,0 +1,14 @@
+{
+  "name": "plan-forge",
+  "owner": {
+    "name": "Brian Fu",
+    "url": "https://github.com/haywoodfu"
+  },
+  "plugins": [
+    {
+      "name": "plan-forge",
+      "source": "./",
+      "description": "Adversarial plan review between AI coding agents — author/reviewer loop with a code-enforced approval gate and a full audit trail."
+    }
+  ]
+}

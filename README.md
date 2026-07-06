@@ -1,5 +1,9 @@
 # plan-forge
 
+[![ci](https://github.com/haywoodfu/plan-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/haywoodfu/plan-forge/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/plan-forge)](https://www.npmjs.com/package/plan-forge)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 Adversarial plan review between AI coding agents. One model drafts a complete
 implementation plan for a frozen requirement, a second model reviews it
 against the repository, and every unresolved `blocker`/`major` finding forces
@@ -39,21 +43,31 @@ audit later: who claimed what, what changed, and why it was approved.
 
 ## Install
 
-```bash
-git clone https://github.com/haywoodfu/plan-forge.git
-cd plan-forge && npm install
-node cli.mjs doctor
+**As a Claude Code plugin** (recommended — the repo is its own marketplace):
+
+```text
+/plugin marketplace add haywoodfu/plan-forge
+/plugin install plan-forge@plan-forge
 ```
 
-Use it as a **Claude Code skill** by cloning into your skills directory —
-the repo doubles as one (see `SKILL.md`):
+Then use `/plan-forge <your requirement>` in any session.
+
+**From npm** (CLI usage, or to try it with zero setup):
+
+```bash
+npx plan-forge doctor
+npm install -g plan-forge   # optional: a global `plan-forge` command
+```
+
+**As a plain skills-directory clone**:
 
 ```bash
 git clone https://github.com/haywoodfu/plan-forge.git ~/.claude/skills/plan-forge
 cd ~/.claude/skills/plan-forge && npm install
+node cli.mjs doctor
 ```
 
-Codex users get the same entry point as a custom prompt:
+**Codex users** get the same entry point as a custom prompt:
 
 ```bash
 cp integrations/codex/plan-forge.md ~/.codex/prompts/
