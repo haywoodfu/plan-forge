@@ -161,6 +161,21 @@ test('status reports the pending review phase after the author commits', async (
   assert.equal(status.status, 'failed');
 });
 
+test('custom publish dir is honored and traversal is rejected at init', async (t) => {
+  const repoRoot = await tempRepo();
+  t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
+  await assert.rejects(
+    () => initTask(repoRoot, 'evil', { publishDir: '../outside' }),
+    /path escapes allowed root/
+  );
+  await initTask(repoRoot, 'workflow', { publishDir: 'notes/approved' });
+  const author = fakeProvider('claude', [{ planMarkdown: plan('Custom dir'), resolutions: [] }]);
+  const reviewer = fakeProvider('codex', [{ verdict: 'approved', previousFindings: [], newFindings: [], summary: 'ok' }]);
+  const result = await runWorkflow(await runtime(repoRoot, author, reviewer));
+  assert.equal(result.status, 'approved');
+  assert.match(await fsp.readFile(path.join(repoRoot, 'notes', 'approved', 'workflow.md'), 'utf8'), /# Custom dir/);
+});
+
 test('resume-time setting overrides persist into task.json', async (t) => {
   const repoRoot = await tempRepo();
   t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));

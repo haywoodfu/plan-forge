@@ -66,6 +66,15 @@ test('suspension gaps extend the deadline instead of killing a healthy provider'
   assert.ok(suspensions[0].suspendedMs > 50);
 });
 
+test('runProcess captures large stdout without pipe truncation', async () => {
+  const result = await runProcess(process.execPath, [
+    '-e',
+    'process.stdout.write("x".repeat(262144)); process.exit(0)'
+  ], { timeoutMs: 10000 });
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout.length, 262144);
+});
+
 test('runProcess streams stderr and emits heartbeats while a provider is running', async () => {
   const stderr = [];
   const heartbeats = [];

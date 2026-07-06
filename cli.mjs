@@ -3,7 +3,8 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { acquireTaskLock, readJson, taskPaths, validateTaskId } from './lib/artifacts.mjs';
+import { acquireTaskLock, readJson, runtimeDirIgnored, taskPaths, validateTaskId } from './lib/artifacts.mjs';
+import { runDoctor } from './lib/doctor.mjs';
 import { createTaskLogger } from './lib/logger.mjs';
 import { createClaudeProvider } from './lib/providers/claude.mjs';
 import { createCodexProvider } from './lib/providers/codex.mjs';
@@ -101,6 +102,7 @@ function taskOptions(values) {
     reviewerModel: values['reviewer-model'] || null,
     authorEffort: values['author-effort'] || null,
     reviewerEffort: values['reviewer-effort'] || null,
+    publishDir: values['publish-dir'] || null,
     maxRounds: numberOption(values, 'max-rounds', 6),
     maxProviderFailures: numberOption(values, 'max-provider-failures', 2),
     authorTimeoutMs: numberOption(values, 'author-timeout', 1200) * 1000,
@@ -124,11 +126,20 @@ function printStatus(status) {
 
 async function main() {
   const { command, values } = parseArgs(process.argv.slice(2));
-  const repoRoot = repositoryRoot();
   if (!command || command === '--help' || values.help) {
-    process.stdout.write('Usage: cli.mjs <run|resume|status|show|override> --task <id> [options]\n');
+    process.stdout.write('Usage: cli.mjs <run|resume|status|show|override|doctor> --task <id> [options]\n');
     return;
   }
+  if (command === 'doctor') {
+    const report = await runDoctor();
+    for (const check of report.checks) {
+      process.stdout.write(`${check.ok ? '  ok ' : 'FAIL '} ${check.name} — ${check.detail}\n`);
+    }
+    process.stdout.write(report.ok ? 'doctor: all checks passed\n' : 'doctor: some checks failed\n');
+    if (!report.ok) process.exitCode = 1;
+    return;
+  }
+  const repoRoot = repositoryRoot();
   const taskId = requireTask(values);
   const paths = taskPaths(repoRoot, taskId);
 
@@ -157,6 +168,9 @@ async function main() {
         options: taskOptions(values)
       });
       logger.stage('task initialized', { requirement: values.requirement });
+      if (!(await runtimeDirIgnored(repoRoot))) {
+        logger.error('warning: .ai/plan-reviews/ is not covered by .gitignore — runtime artifacts will show up in git status');
+      }
       printStatus(await executeTask(repoRoot, taskId, logger));
       return;
     }
