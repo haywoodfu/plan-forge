@@ -1,0 +1,37 @@
+{
+  "description": "Provider-common JSON Schema subset: every property is required, every object rejects additional properties, nullable values use a type union, and content constraints are enforced by the orchestrator.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "planMarkdown": {
+      "type": "string"
+    },
+    "resolutions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "findingId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["accepted", "rejected", "superseded"]
+          },
+          "changedSections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "explanation": {
+            "type": "string"
+          }
+        },
+        "required": ["findingId", "action", "changedSections", "explanation"]
+      }
+    }
+  },
+  "required": ["planMarkdown", "resolutions"]
+}

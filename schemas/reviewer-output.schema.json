@@ -1,0 +1,90 @@
+{
+  "description": "Provider-common JSON Schema subset: every property is required, every object rejects additional properties, nullable values use a type union, and content constraints are enforced by the orchestrator.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["approved", "changes_requested"]
+    },
+    "previousFindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["resolved", "still_open", "withdrawn", "severity_changed"]
+          },
+          "effectiveSeverity": {
+            "type": ["string", "null"],
+            "enum": ["blocker", "major", "minor", "nit", null]
+          },
+          "explanation": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "status", "effectiveSeverity", "explanation"]
+      }
+    },
+    "newFindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": ["string", "null"]
+          },
+          "relatedToFindingId": {
+            "type": ["string", "null"]
+          },
+          "noveltyRationale": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["blocker", "major", "minor", "nit"]
+          },
+          "category": {
+            "type": "string"
+          },
+          "planSection": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requiredChange": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "relatedToFindingId",
+          "noveltyRationale",
+          "severity",
+          "category",
+          "planSection",
+          "problem",
+          "evidence",
+          "requiredChange"
+        ]
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": ["verdict", "previousFindings", "newFindings", "summary"]
+}
