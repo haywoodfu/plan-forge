@@ -5,7 +5,7 @@ import { plan, toolRoot } from './helpers.mjs';
 
 test('prompt builder includes required artifacts and excludes process environment', async () => {
   const templates = await loadPromptTemplates(toolRoot);
-  process.env.PLAN_REVIEW_TEST_SECRET = 'must-not-leak';
+  process.env.PLAN_FORGE_TEST_SECRET = 'must-not-leak';
   const findings = [{
     id: 'F001', effectiveSeverity: 'blocker', category: 'correctness', planSection: 'Implementation',
     problem: 'broken', evidence: ['src/a.js'], requiredChange: 'fix it', criticalReviewStreak: 1

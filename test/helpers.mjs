@@ -53,7 +53,7 @@ export function fakeProvider(name, outputs) {
 }
 
 export async function tempRepo() {
-  const repoRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'plan-review-test-'));
+  const repoRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'plan-forge-test-'));
   execFileSync('git', ['init', '-q'], { cwd: repoRoot });
   await fsp.writeFile(path.join(repoRoot, 'AGENTS.md'), '# Test instructions\n');
   await fsp.writeFile(path.join(repoRoot, 'requirement.md'), '# Requirement\nBuild the workflow.\n');

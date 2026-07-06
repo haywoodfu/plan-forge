@@ -9,7 +9,7 @@ import { loadSchemas } from '../lib/schema.mjs';
 import { runWorkflow } from '../lib/workflow.mjs';
 import { initTask, tempRepo, toolRoot } from './helpers.mjs';
 
-test('live Claude/Codex workflow smoke test', { skip: process.env.PLAN_REVIEW_LIVE !== '1', timeout: 30 * 60 * 1000 }, async (t) => {
+test('live Claude/Codex workflow smoke test', { skip: process.env.PLAN_FORGE_LIVE !== '1', timeout: 30 * 60 * 1000 }, async (t) => {
   const repoRoot = await tempRepo();
   t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
   await fsp.writeFile(
