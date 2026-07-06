@@ -30,5 +30,18 @@
     "url": "git+https://github.com/haywoodfu/plan-forge.git"
   },
   "author": "Brian Fu",
-  "license": "MIT"
+  "license": "MIT",
+  "files": [
+    "cli.mjs",
+    "lib/",
+    "prompts/",
+    "schemas/",
+    "SKILL.md",
+    "docs/design.md",
+    "integrations/"
+  ],
+  "homepage": "https://github.com/haywoodfu/plan-forge#readme",
+  "bugs": {
+    "url": "https://github.com/haywoodfu/plan-forge/issues"
+  }
 }
