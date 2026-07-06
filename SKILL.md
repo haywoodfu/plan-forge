@@ -15,13 +15,26 @@ author or reviewer yourself, and the model subprocesses run read-only.
    `plan-forge doctor` if installed). All checks must pass — it verifies both
    provider CLIs exist and support every flag the adapters need, without
    spending any tokens.
-2. **Confirm cost and scope with the user** before the first model call. At
-   the default effort levels (claude=xhigh, codex=high) a 3–4 round task
-   typically costs **$15–25 on the Claude side** plus Codex usage, and takes
-   30–60 minutes. Never start a run the user has not explicitly approved.
-3. **Freeze the requirement**: write the user's requirement into a file in
-   the target repository (e.g. `docs/requirements/<task-id>.md`). The file is
-   hashed and frozen at task creation; changing it later requires a new task.
+2. **Structure the requirement — this step is never optional.** When the
+   user invokes `/plan-forge <raw requirement text>` (or gives you a vague
+   ask), you MUST NOT freeze it as-is. The review loop gates plans against
+   the frozen requirement; a one-liner gives the reviewer nothing to hold the
+   author to. Instead:
+   1. Ask the user targeted clarifying questions: goal, constraints,
+      acceptance criteria, explicit non-goals, affected surfaces.
+   2. Draft the structured requirement (headings: Goal / Constraints /
+      Acceptance criteria / Non-goals) grounded in what you learned.
+   3. Show the draft to the user **together with the cost estimate** (at
+      default efforts a 3–4 round task costs **$15–25 on the Claude side**
+      plus Codex usage and takes 30–60 minutes).
+   4. Only after the user explicitly confirms both the text and the spend,
+      freeze it.
+3. **Freeze the requirement** using either channel — the task snapshots the
+   text either way, and the approved plan archives it as an appendix:
+   - inline: `plan-forge run --task <id> --requirement-text "<structured text>"`
+     (or pipe long text: `plan-forge run --task <id> --requirement -`), or
+   - file: write `docs/requirements/<task-id>.md` and pass `--requirement`.
+   Derive the task id yourself: kebab-case, short, content-derived.
 4. The target directory must be a git repository. Warn the user if
    `.plan-forge/` is not in the repo's `.gitignore` (the CLI also warns).
 

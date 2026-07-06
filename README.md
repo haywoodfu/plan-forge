@@ -53,13 +53,23 @@ git clone https://github.com/haywoodfu/plan-forge.git ~/.claude/skills/plan-forg
 cd ~/.claude/skills/plan-forge && npm install
 ```
 
+Codex users get the same entry point as a custom prompt:
+
+```bash
+cp integrations/codex/plan-forge.md ~/.codex/prompts/
+# then inside codex:  /plan-forge <your requirement>
+```
+
 ## Quickstart
 
 Inside any git repository:
 
 ```bash
-# 1. Freeze the requirement as a file
-$EDITOR docs/requirements/dark-mode.md
+# 1. Freeze the requirement — a file, inline text, or stdin
+$EDITOR docs/requirements/dark-mode.md                 # file mode
+#   ... or skip the file entirely:
+#   --requirement-text "structured requirement text"    (inline)
+#   --requirement -                                      (stdin)
 
 # 2. Run the loop (author claude / reviewer codex, or swap them)
 node /path/to/plan-forge/cli.mjs run \
@@ -70,9 +80,17 @@ node /path/to/plan-forge/cli.mjs run \
 # 3. Watch progress from another terminal (no cost)
 node /path/to/plan-forge/cli.mjs status --task dark-mode
 
-# 4. On approval the plan is archived automatically
+# 4. On approval the plan is archived automatically,
+#    with the frozen requirement appended for a self-contained record
 cat docs/plans/dark-mode.md
 ```
+
+When invoked through the skill (`/plan-forge <raw text>`), the agent must
+first ask clarifying questions, structure the requirement (goal, constraints,
+acceptance criteria, non-goals), and get your explicit confirmation — of both
+the text and the expected spend — before freezing anything. A vague frozen
+requirement weakens the review gate; the structuring step is mandatory, not
+cosmetic.
 
 Expect a 3–4 round task to take 30–60 minutes and cost roughly **$15–25 of
 Claude usage** (plus Codex usage) at the default effort levels. On a laptop,
@@ -84,7 +102,7 @@ wall-clock time and can break provider connections.
 
 | Command | Purpose |
 |---|---|
-| `run --task <id> --requirement <file>` | create and run a task |
+| `run --task <id> --requirement <file\|-> \| --requirement-text <text>` | create and run a task (file, stdin, or inline text) |
 | `resume --task <id>` | continue after any interruption; never re-runs committed rounds |
 | `status --task <id>` | current phase, round, open findings (free) |
 | `show --task <id> [--publish <path>]` | print the approved plan / copy it elsewhere |
@@ -133,7 +151,7 @@ Runtime state lives in `.plan-forge/<task-id>/` (add `.plan-forge/` to your
 ## Development
 
 ```bash
-npm test                      # 27 tests, fake providers, zero model cost
+npm test                      # 28 tests, fake providers, zero model cost
 PLAN_FORGE_LIVE=1 node --test test/live.test.mjs   # opt-in real two-model smoke
 ```
 

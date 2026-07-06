@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -160,14 +161,24 @@ async function main() {
   logger.stage('command started', { command, logFile: logger.logFile });
   try {
     if (command === 'run') {
-      if (!values.requirement) throw new Error('--requirement is required');
+      const inlineText = typeof values['requirement-text'] === 'string' ? values['requirement-text'] : null;
+      const fileArg = typeof values.requirement === 'string' ? values.requirement : null;
+      if ((inlineText === null) === (fileArg === null)) {
+        throw new Error('provide exactly one of --requirement <file|-> or --requirement-text <text>');
+      }
+      let requirementText = inlineText;
+      if (fileArg === '-') requirementText = fs.readFileSync(0, 'utf8');
       await initializeTask({
         repoRoot,
         taskId,
-        requirementFile: path.resolve(repoRoot, values.requirement),
+        requirementFile: fileArg && fileArg !== '-' ? path.resolve(repoRoot, fileArg) : null,
+        requirementText,
         options: taskOptions(values)
       });
-      logger.stage('task initialized', { requirement: values.requirement });
+      logger.stage('task initialized', {
+        requirement: fileArg ?? 'inline text',
+        inline: fileArg === null || fileArg === '-'
+      });
       if (!(await runtimeDirIgnored(repoRoot))) {
         logger.error('warning: .plan-forge/ is not covered by .gitignore — runtime artifacts will show up in git status');
       }
