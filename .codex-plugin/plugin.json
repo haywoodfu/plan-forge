@@ -1,0 +1,38 @@
+{
+  "name": "plan-forge",
+  "version": "0.1.1",
+  "description": "Adversarial plan review between AI coding agents: one model drafts an implementation plan, another reviews it, and unresolved blocker/major findings drive full-plan revisions until approval or an auditable human handoff.",
+  "author": {
+    "name": "Brian Fu",
+    "url": "https://github.com/haywoodfu"
+  },
+  "homepage": "https://github.com/haywoodfu/plan-forge",
+  "repository": "https://github.com/haywoodfu/plan-forge",
+  "license": "MIT",
+  "keywords": [
+    "plan-review",
+    "adversarial-review",
+    "claude-code",
+    "codex",
+    "ai-agents"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Plan Forge",
+    "shortDescription": "Adversarial plan review before coding.",
+    "longDescription": "Plan Forge orchestrates Claude Code and Codex CLI as an author/reviewer pair. One agent drafts a complete implementation plan for a frozen requirement; the other reviews it against the repository. Blocker and major findings force full-plan revisions until approval or an auditable human handoff.",
+    "developerName": "Brian Fu",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/haywoodfu/plan-forge",
+    "brandColor": "#334155",
+    "defaultPrompt": [
+      "Use $plan-forge to review this implementation plan.",
+      "Use $plan-forge to structure this requirement first.",
+      "Run an adversarial plan review before coding."
+    ]
+  }
+}

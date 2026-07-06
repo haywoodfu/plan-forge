@@ -1,0 +1,20 @@
+{
+  "name": "plan-forge",
+  "interface": {
+    "displayName": "Plan Forge"
+  },
+  "plugins": [
+    {
+      "name": "plan-forge",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

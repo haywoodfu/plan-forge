@@ -1,6 +1,6 @@
 {
   "name": "@haywood/plan-forge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Adversarial plan review between AI coding agents: one model drafts an implementation plan, another reviews it, and unresolved blocker/major findings drive full-plan revisions until approval or an auditable human handoff.",
   "type": "module",
   "bin": {

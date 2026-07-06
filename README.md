@@ -49,7 +49,16 @@ audit later: who claimed what, what changed, and why it was approved.
 
 ## Install
 
-**As a Claude Code plugin** (recommended — the repo is its own marketplace):
+**From npm** (CLI usage, or to try it with zero setup):
+
+```bash
+npx @haywood/plan-forge doctor
+npm install -g @haywood/plan-forge   # installs a global `plan-forge` command
+plan-forge doctor
+```
+
+**As a Claude Code plugin** (recommended for Claude Code — the repo is its
+own marketplace):
 
 ```text
 /plugin marketplace add haywoodfu/plan-forge
@@ -58,14 +67,33 @@ audit later: who claimed what, what changed, and why it was approved.
 
 Then use `/plan-forge <your requirement>` in any session.
 
-**From npm** (CLI usage, or to try it with zero setup):
+**As a Codex plugin** (recommended for Codex — the repo is its own
+marketplace):
 
 ```bash
-npx @haywood/plan-forge doctor
-npm install -g @haywood/plan-forge   # installs a global `plan-forge` command
+codex plugin marketplace add haywoodfu/plan-forge
 ```
 
-**As a plain skills-directory clone**:
+Then restart Codex, open the plugin directory (`/plugins` in the CLI or
+**Plugins** in the Codex app), choose the **Plan Forge** marketplace, and
+install **Plan Forge**. Start a new session and invoke the skill explicitly
+with `$plan-forge <your requirement>`, or ask for a plan review / adversarial
+review and let Codex trigger it from its description.
+
+**As a Codex skill clone** (manual fallback while iterating):
+
+```bash
+mkdir -p ~/.agents/skills
+git clone https://github.com/haywoodfu/plan-forge.git ~/.agents/skills/plan-forge
+cd ~/.agents/skills/plan-forge && npm install
+node cli.mjs doctor
+```
+
+Then restart Codex or open a new session. Invoke the skill explicitly with
+`$plan-forge <your requirement>`, or ask for a plan review / adversarial review
+and let Codex trigger the skill from its description.
+
+**As a Claude Code skills-directory clone**:
 
 ```bash
 git clone https://github.com/haywoodfu/plan-forge.git ~/.claude/skills/plan-forge
@@ -73,12 +101,19 @@ cd ~/.claude/skills/plan-forge && npm install
 node cli.mjs doctor
 ```
 
-**Codex users** get the same entry point as a custom prompt:
+**Legacy Codex custom prompt** (not recommended for new installs):
 
 ```bash
-cp integrations/codex/plan-forge.md ~/.codex/prompts/
-# then inside codex:  /plan-forge <your requirement>
+npm install -g @haywood/plan-forge
+mkdir -p ~/.codex/prompts
+cp integrations/codex/plan-forge.md ~/.codex/prompts/plan-forge.md
+# then restart Codex or open a new session and invoke:
+# /prompts:plan-forge <your requirement>
 ```
+
+Custom prompts are local copies, do not update with the repo, require explicit
+invocation, and assume the `plan-forge` CLI is already available on `PATH`.
+Use the Codex plugin or skill install above for reusable workflow behavior.
 
 ## Quickstart
 
@@ -92,21 +127,25 @@ $EDITOR docs/requirements/dark-mode.md                 # file mode
 #   --requirement -                                      (stdin)
 
 # 2. Run the loop (author claude / reviewer codex, or swap them)
-node /path/to/plan-forge/cli.mjs run \
+plan-forge run \
   --task dark-mode \
   --requirement docs/requirements/dark-mode.md \
   --author claude --reviewer codex
 
 # 3. Watch progress from another terminal (no cost)
-node /path/to/plan-forge/cli.mjs status --task dark-mode
+plan-forge status --task dark-mode
 
 # 4. On approval the plan is archived automatically,
 #    with the frozen requirement appended for a self-contained record
 cat docs/plans/dark-mode.md
 ```
 
-When invoked through the skill (`/plan-forge <raw text>`), the agent must
-first ask clarifying questions, structure the requirement (goal, constraints,
+If you do not install the CLI globally, replace `plan-forge` with
+`npx @haywood/plan-forge` or run `node cli.mjs` from a skills-directory clone.
+
+When invoked through an agent integration (`/plan-forge <raw text>` in Claude
+Code, or `$plan-forge <raw text>` in Codex), the agent must first ask
+clarifying questions, structure the requirement (goal, constraints,
 acceptance criteria, non-goals), and get your explicit confirmation — of both
 the text and the expected spend — before freezing anything. A vague frozen
 requirement weakens the review gate; the structuring step is mandatory, not
