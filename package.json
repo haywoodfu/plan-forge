@@ -1,0 +1,34 @@
+{
+  "name": "plan-forge",
+  "version": "0.1.0",
+  "description": "Adversarial plan review between AI coding agents: one model drafts an implementation plan, another reviews it, and unresolved blocker/major findings drive full-plan revisions until approval or an auditable human handoff.",
+  "type": "module",
+  "bin": {
+    "plan-forge": "./cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "doctor": "node cli.mjs doctor"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ajv": "^8.17.0"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "plan-review",
+    "adversarial-review",
+    "ai-agents",
+    "code-planning",
+    "skill"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haywoodfu/plan-forge.git"
+  },
+  "author": "Brian Fu",
+  "license": "MIT"
+}
