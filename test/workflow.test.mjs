@@ -76,7 +76,9 @@ test('approval and all derived projections recover without provider calls', asyn
   const taskDir = path.join(repoRoot, '.plan-forge', 'workflow');
   const publishedPath = path.join(repoRoot, 'docs', 'plans', 'workflow.md');
   const published = await fsp.readFile(publishedPath, 'utf8');
-  assert.match(published, /^<!-- plan-review: task=workflow round=1 author=claude reviewer=codex /);
+  assert.match(published, /^<!-- plan-forge: task=workflow round=1 author=claude reviewer=codex /);
+  assert.match(published, /## Appendix: Frozen Requirement/);
+  assert.match(published, /Build the workflow/);
   assert.match(published, /# Approved/);
 
   await fsp.rm(path.join(taskDir, 'state.json'));
@@ -234,4 +236,30 @@ test('human override closes a blocker without rewriting review history', async (
   assert.equal(reviewer.calls, 1);
   const review = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'rounds', '001', 'review.json')));
   assert.equal(review.review.newFindings[0].id, 'F001');
+});
+
+test('inline requirement text freezes without a source file', async (t) => {
+  const repoRoot = await tempRepo();
+  t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
+  await initTask(repoRoot, 'workflow', { requirementText: '# Inline requirement\n\nShip the thing inline.' });
+  const taskDir = path.join(repoRoot, '.plan-forge', 'workflow');
+  const task = JSON.parse(await fsp.readFile(path.join(taskDir, 'task.json'), 'utf8'));
+  assert.match(task.requirementMarkdown, /Ship the thing inline/);
+
+  const author = fakeProvider('claude', [{ planMarkdown: plan('Inline'), resolutions: [] }]);
+  const reviewer = fakeProvider('codex', [{ verdict: 'approved', previousFindings: [], newFindings: [], summary: 'ok' }]);
+  const result = await runWorkflow(await runtime(repoRoot, author, reviewer));
+  assert.equal(result.status, 'approved');
+  const published = await fsp.readFile(path.join(repoRoot, 'docs', 'plans', 'workflow.md'), 'utf8');
+  assert.match(published, /Ship the thing inline/);
+
+  const { initializeTask } = await import('../lib/workflow.mjs');
+  await assert.rejects(
+    () => initializeTask({ repoRoot, taskId: 'both', requirementFile: 'x.md', requirementText: 'y', options: {} }),
+    /exactly one of/
+  );
+  await assert.rejects(
+    () => initializeTask({ repoRoot, taskId: 'neither', options: {} }),
+    /exactly one of/
+  );
 });

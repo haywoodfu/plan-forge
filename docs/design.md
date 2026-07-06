@@ -271,6 +271,11 @@ Per-task runtime artifacts:
 └── final.md
 ```
 
+The published archive is self-contained: the frozen requirement is appended
+to `docs/plans/<task-id>.md` as an appendix, so inline-requirement tasks
+(with no requirement file outside the gitignored runtime dir) remain fully
+auditable from version control alone.
+
 `.plan-forge/` belongs in the consumer repo's `.gitignore` (`run` warns when
 it is not covered). The approved final plan is **published automatically** by
 `finalize` to `docs/plans/<task-id>.md` (inside version control, rebuilt
@@ -764,6 +769,8 @@ Supported options:
 --author-effort / --reviewer-effort     # reasoning effort, also on resume. Defaults: claude=xhigh, codex=high.
                                         # claude enum: low|medium|high|xhigh|max; codex enum: none|minimal|low|medium|high|xhigh
 --publish-dir <dir>                     # auto-archive directory for approved plans (default docs/plans, must be inside the repo); persisted per task
+--requirement <file|->                  # requirement source file, or - for stdin
+--requirement-text <text>               # inline requirement (exactly one of the two requirement channels)
 ```
 
 The `override` subcommand additionally accepts:

@@ -61,10 +61,12 @@ export async function tempRepo() {
 }
 
 export async function initTask(repoRoot, taskId = 'test-task', overrides = {}) {
+  const { requirementText = null, ...optionOverrides } = overrides;
   await initializeTask({
     repoRoot,
     taskId,
-    requirementFile: path.join(repoRoot, 'requirement.md'),
+    requirementFile: requirementText === null ? path.join(repoRoot, 'requirement.md') : null,
+    requirementText,
     options: {
       author: 'claude',
       reviewer: 'codex',
@@ -76,7 +78,7 @@ export async function initTask(repoRoot, taskId = 'test-task', overrides = {}) {
       reviewerTimeoutMs: 5000,
       claudeAuthorMaxBudgetUsd: null,
       claudeReviewerMaxBudgetUsd: null,
-      ...overrides
+      ...optionOverrides
     }
   });
 }
