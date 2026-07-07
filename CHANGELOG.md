@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.2 — 2026-07-07
+
+- Accept a Linear issue key or URL as the requirement input: the
+  orchestrating agent fetches the ticket (title, description, comments)
+  via an available Linear tool and treats it as the raw requirement.
+- The mandatory clarify → structure → confirm → freeze flow still applies
+  in full; ticket provenance is recorded as a `Source:` line inside the
+  structured requirement, so the CLI and schemas are unchanged.
+- Mirrored in the Codex custom prompt, with a fallback that asks the user
+  to paste ticket content when no Linear tool is available.
+
 ## 0.1.1 — 2026-07-06
 
 - Add Codex plugin metadata and repo marketplace distribution.
