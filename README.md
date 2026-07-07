@@ -151,6 +151,12 @@ the text and the expected spend — before freezing anything. A vague frozen
 requirement weakens the review gate; the structuring step is mandatory, not
 cosmetic.
 
+You can also pass a Linear issue key or URL (e.g. `/plan-forge ENG-123`): the
+agent fetches the ticket through an available Linear tool (such as the Linear
+MCP), treats its content as the raw requirement, and records the ticket as a
+`Source:` line in the structured requirement. The structuring-and-confirmation
+flow above still applies in full — ticket content is never frozen as-is.
+
 Expect a 3–4 round task to take 30–60 minutes and cost roughly **$15–25 of
 Claude usage** (plus Codex usage) at the default effort levels. On a laptop,
 keep the lid open: timeouts are suspension-aware (system sleep extends the
