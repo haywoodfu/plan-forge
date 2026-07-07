@@ -1,6 +1,6 @@
 ---
 name: plan-forge
-description: Run an adversarial plan review loop between two AI coding agents (Claude Code and Codex CLI) — one drafts a complete implementation plan for a frozen requirement, the other reviews it, and unresolved blocker/major findings drive full-plan revisions until approval or an auditable human handoff. Use when the user asks for a "plan review", "adversarial review", "cross review", "互审", or wants two models to iterate on a plan before implementation.
+description: Run an adversarial plan review loop between two AI coding agents (Claude Code and Codex CLI) — one drafts a complete implementation plan for a frozen requirement, the other reviews it, and unresolved blocker/major findings drive full-plan revisions until approval or an auditable human handoff. Use when the user asks for a "plan review", "adversarial review", "cross review", "互审", wants two models to iterate on a plan before implementation, or asks to plan-review a Linear ticket by its issue key or URL (e.g. "plan ENG-123").
 ---
 
 # plan-forge — adversarial plan review
@@ -19,7 +19,20 @@ author or reviewer yourself, and the model subprocesses run read-only.
    checks must pass — it verifies both provider CLIs exist and support every
    flag the adapters need, without spending any tokens. If it reports `ajv`
    as not resolvable, run `npm install` in the plan-forge root once.
-2. **Structure the requirement — this step is never optional.** When the
+2. **Resolve ticket references.** If the user's ask is (or contains) a
+   Linear issue key (uppercase letters + digits, e.g. `ENG-123`) or a
+   `linear.app` issue URL, fetch the issue first using an available Linear
+   tool (e.g. the Linear MCP `get_issue`; pull clarifying comments with
+   `list_comments` when the description is thin). Merge the title,
+   description, and relevant comments into the raw requirement text, then
+   continue with the structuring step below — ticket content is a raw
+   requirement, never freeze it as-is. Open the structured requirement with
+   a source line (`Source: ENG-123 — <issue url>`) so provenance is archived
+   with the frozen requirement, and derive the task id from the ticket key
+   (e.g. `eng-123-<short-slug>`). If no Linear tool is available in the
+   session, say so and ask the user to paste the ticket content — never
+   guess or silently skip the fetch.
+3. **Structure the requirement — this step is never optional.** When the
    user invokes `/plan-forge <raw requirement text>` (or gives you a vague
    ask), you MUST NOT freeze it as-is. The review loop gates plans against
    the frozen requirement; a one-liner gives the reviewer nothing to hold the
@@ -33,13 +46,13 @@ author or reviewer yourself, and the model subprocesses run read-only.
       plus Codex usage and takes 30–60 minutes).
    4. Only after the user explicitly confirms both the text and the spend,
       freeze it.
-3. **Freeze the requirement** using either channel — the task snapshots the
+4. **Freeze the requirement** using either channel — the task snapshots the
    text either way, and the approved plan archives it as an appendix:
    - inline: `plan-forge run --task <id> --requirement-text "<structured text>"`
      (or pipe long text: `plan-forge run --task <id> --requirement -`), or
    - file: write `docs/requirements/<task-id>.md` and pass `--requirement`.
    Derive the task id yourself: kebab-case, short, content-derived.
-4. The target directory must be a git repository. Warn the user if
+5. The target directory must be a git repository. Warn the user if
    `.plan-forge/` is not in the repo's `.gitignore` (the CLI also warns).
 
 ## Running
