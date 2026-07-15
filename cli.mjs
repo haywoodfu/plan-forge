@@ -11,7 +11,7 @@ import { createClaudeProvider } from './lib/providers/claude.mjs';
 import { createCodexProvider } from './lib/providers/codex.mjs';
 import { loadPromptTemplates } from './lib/prompts.mjs';
 import { loadSchemas } from './lib/schema.mjs';
-import { applyOverride, clearFailures, initializeTask, inspectTask, readFinal, resolveEffort, runWorkflow, updateTaskSettings } from './lib/workflow.mjs';
+import { applyOverride, clearFailures, initializeTask, inspectTask, readFinal, resolveEffort, resolveModel, runWorkflow, updateTaskSettings } from './lib/workflow.mjs';
 
 const toolRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -73,13 +73,13 @@ async function buildRuntime(repoRoot, task) {
     providers: {
       author: providerFor(task.author, {
         repoRoot,
-        model: task.authorModel,
+        model: resolveModel(task.author, task.authorModel ?? null),
         budget: task.author === 'claude' ? task.claudeAuthorMaxBudgetUsd : null,
         effort: resolveEffort(task.author, task.authorEffort ?? null)
       }),
       reviewer: providerFor(task.reviewer, {
         repoRoot,
-        model: task.reviewerModel,
+        model: resolveModel(task.reviewer, task.reviewerModel ?? null),
         budget: task.reviewer === 'claude' ? task.claudeReviewerMaxBudgetUsd : null,
         effort: resolveEffort(task.reviewer, task.reviewerEffort ?? null)
       })
