@@ -28,3 +28,24 @@ test('prompt builder includes required artifacts and excludes process environmen
   const author = buildAuthorPrompt({ templates, agentsMd: '# AGENTS', requirement: '# Requirement', previousPlan: null, findings: [], overrides: { entries: [] } });
   assert.match(author, /Author Role/);
 });
+
+test('the reviewer prompt carries closed findings so recurrence can be declared', async () => {
+  const templates = await loadPromptTemplates(toolRoot);
+  const prompt = buildReviewerPrompt({
+    templates,
+    agentsMd: '# AGENTS',
+    requirement: '# Requirement',
+    plan: plan('Current'),
+    findings: [],
+    closedFindings: [{
+      id: 'F001', effectiveSeverity: 'major', category: 'correctness', planSection: 'Implementation',
+      problem: 'the gate was subtractive', evidence: [], requiredChange: 'enumerate the fields',
+      lastStatus: 'resolved', lastExplanation: 'author enumerated them', lastReviewedRound: 2
+    }],
+    resolutions: [],
+    overrides: { entries: [] }
+  });
+  assert.match(prompt, /BEGIN CLOSED FINDINGS/);
+  assert.match(prompt, /the gate was subtractive/);
+  assert.match(prompt, /author enumerated them/);
+});

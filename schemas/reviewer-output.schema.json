@@ -43,6 +43,10 @@
           "relatedToFindingId": {
             "type": ["string", "null"]
           },
+          "relationKind": {
+            "type": ["string", "null"],
+            "enum": ["recurrence", "adjacent", null]
+          },
           "noveltyRationale": {
             "type": "string"
           },
@@ -72,6 +76,7 @@
         "required": [
           "id",
           "relatedToFindingId",
+          "relationKind",
           "noveltyRationale",
           "severity",
           "category",

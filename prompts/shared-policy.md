@@ -11,4 +11,8 @@ Severity meanings:
 - `minor`: a localized improvement that does not block implementation.
 - `nit`: wording, naming, or style only.
 
-Only unresolved `blocker` and `major` findings prevent approval. Return only the structured object requested by the provided JSON Schema.
+Only unresolved `blocker` and `major` findings prevent approval.
+
+Severity decides what **blocks** approval, never what may be **ignored**. Every open finding, at every severity, is answered every round: the reviewer dispositions it, the author resolves it. An unanswered `minor` does not quietly expire — it stays open and returns next round. Answering it once closes it, and rejecting it with a concrete reason is a complete answer.
+
+Return only the structured object requested by the provided JSON Schema.

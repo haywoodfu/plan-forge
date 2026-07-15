@@ -10,9 +10,9 @@ import { fakeProvider, initTask, plan, tempRepo, toolRoot } from './helpers.mjs'
 
 function newBlocker() {
   return {
-    id: null, relatedToFindingId: null, noveltyRationale: 'new correctness issue', severity: 'blocker',
-    category: 'correctness', planSection: 'Implementation', problem: 'the plan is incomplete',
-    evidence: ['src/a.js'], requiredChange: 'add the missing behavior'
+    id: null, relatedToFindingId: null, relationKind: null, noveltyRationale: 'new correctness issue',
+    severity: 'blocker', category: 'correctness', planSection: 'Implementation',
+    problem: 'the plan is incomplete', evidence: ['src/a.js'], requiredChange: 'add the missing behavior'
   };
 }
 
@@ -61,6 +61,90 @@ test('workflow gives two revision attempts before needs_human', async (t) => {
   assert.equal(status.blockingFindings[0].requiredChange, 'add the missing behavior');
   assert.equal(status.blockingFindings[0].lastExplanation, 'still broken');
   assert.equal(status.blockingFindings[0].criticalReviewStreak, 2);
+});
+
+test('a critical defect recurring under a fresh id still reaches the stall gate', async (t) => {
+  const repoRoot = await tempRepo();
+  t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
+  await initTask(repoRoot, 'workflow', { maxRounds: 6 });
+  const author = fakeProvider('claude', [
+    { planMarkdown: plan('Round 1'), resolutions: [] },
+    { planMarkdown: plan('Round 2'), resolutions: resolution() },
+    { planMarkdown: plan('Round 3'), resolutions: [{ ...resolution()[0], findingId: 'F002' }] }
+  ]);
+  // The author "fixes" the defect every round and the reviewer agrees it is
+  // resolved, then finds the same defect wearing the next id. Before recurrence
+  // was tracked, each new id reset the streak and the run burned every round.
+  const recurrenceOf = (ancestor) => ({ ...newBlocker(), relatedToFindingId: ancestor, relationKind: 'recurrence' });
+  const reviewer = fakeProvider('codex', [
+    { verdict: 'changes_requested', previousFindings: [], newFindings: [newBlocker()], summary: 'blocker' },
+    {
+      verdict: 'changes_requested',
+      previousFindings: [{ id: 'F001', status: 'resolved', effectiveSeverity: null, explanation: 'fix looked right' }],
+      newFindings: [recurrenceOf('F001')],
+      summary: 'same defect, new shape'
+    },
+    {
+      verdict: 'changes_requested',
+      previousFindings: [{ id: 'F002', status: 'resolved', effectiveSeverity: null, explanation: 'fix looked right' }],
+      newFindings: [recurrenceOf('F002')],
+      summary: 'same defect again'
+    }
+  ]);
+  const args = await runtime(repoRoot, author, reviewer);
+  const result = await runWorkflow(args);
+
+  // maxRounds is 6, so stopping at round 3 can only be the stall detector.
+  assert.equal(result.status, 'needs_human');
+  assert.equal(result.round, 3);
+  const status = await inspectTask({ repoRoot, taskId: 'workflow', schemas: args.schemas });
+  assert.deepEqual(status.blockingFindings.map((item) => item.id), ['F003']);
+  assert.equal(status.blockingFindings[0].criticalReviewStreak, 2);
+});
+
+test('an open minor is answered by both roles and never blocks approval', async (t) => {
+  const repoRoot = await tempRepo();
+  t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
+  await initTask(repoRoot, 'workflow');
+  const minor = {
+    ...newBlocker(), severity: 'minor', category: 'usability',
+    problem: 'the documented command contradicts the flag rules', requiredChange: 'reconcile the example'
+  };
+  const author = fakeProvider('claude', [
+    { planMarkdown: plan('Round 1'), resolutions: [] },
+    // Resolving only the blocker would throw: the minor is active too.
+    {
+      planMarkdown: plan('Round 2'),
+      resolutions: [
+        ...resolution(),
+        { findingId: 'F002', action: 'accepted', changedSections: ['Implementation'], explanation: 'example reconciled' }
+      ]
+    }
+  ]);
+  const reviewer = fakeProvider('codex', [
+    { verdict: 'changes_requested', previousFindings: [], newFindings: [newBlocker(), minor], summary: 'one of each' },
+    {
+      verdict: 'approved',
+      previousFindings: [
+        { id: 'F001', status: 'resolved', effectiveSeverity: null, explanation: 'behavior added' },
+        { id: 'F002', status: 'still_open', effectiveSeverity: null, explanation: 'wording still off, not worth a round' }
+      ],
+      newFindings: [],
+      summary: 'blocker cleared, minor noted'
+    }
+  ]);
+  const args = await runtime(repoRoot, author, reviewer);
+  const result = await runWorkflow(args);
+
+  assert.equal(result.status, 'approved');
+  assert.equal(reviewer.calls, 2);
+  // The minor survived to approval as an answered, still-open finding rather
+  // than being re-raised under a new id every round.
+  const status = await inspectTask({ repoRoot, taskId: 'workflow', schemas: args.schemas });
+  assert.deepEqual(status.blockingFindings, []);
+  const round2 = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'rounds', '002', 'review.json'), 'utf8'));
+  assert.deepEqual(round2.review.previousFindings.map((item) => item.id), ['F001', 'F002']);
+  assert.deepEqual(round2.review.newFindings, []);
 });
 
 test('approval and all derived projections recover without provider calls', async (t) => {

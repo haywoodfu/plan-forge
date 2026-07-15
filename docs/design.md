@@ -197,10 +197,12 @@ The full loop:
 1. Freeze the requirement file and record its SHA-256.
 2. Model A drafts a complete plan from the requirement and the repository.
 3. Model B reviews the plan and its structured findings are committed to disk.
-4. If any `blocker` or `major` remains open, model A must answer every one of
-   them and produce a complete new plan.
-5. Model B re-reviews the new plan and verifies whether the previous round's
-   critical findings are resolved.
+4. If any `blocker` or `major` remains open, model A must answer every open
+   finding — at every severity, not only the blocking ones — and produce a
+   complete new plan.
+5. Model B re-reviews the new plan, dispositions every open finding, and is
+   shown the findings it already closed so a defect that resurfaces can be
+   filed as a recurrence rather than as a discovery.
 6. When no `blocker`/`major` remains open, the workflow produces `final.md`
    and an approval record.
 7. When an anti-livelock condition triggers, the workflow stops as
@@ -416,6 +418,21 @@ AND this round introduces no new blocker/major
 `minor` and `nit` findings stay in the final review record but do not drive
 further loop iterations.
 
+Severity governs **blocking only**, never visibility. Two distinct sets are
+derived from the finding map and must not be conflated:
+
+- **active** (`activeFindings`) — every finding that is not closed, at every
+  severity. The Reviewer must disposition each one; the Author must resolve
+  each one. This is what both prompts carry.
+- **blocking** (`blockingFindings`) — the active subset at `blocker`/`major`.
+  This alone gates approval.
+
+A severity left out of the active set is unreachable by both roles: it can never
+be dispositioned, so it never closes, and the Reviewer re-files the same defect
+under a fresh id every round. `minor` was in exactly that state until the two
+sets were split, which is why a single CLI inconsistency could be filed four
+times across four rounds under four ids.
+
 ### 4.2 Reviewer output
 
 The Reviewer never edits the plan; it returns only a structured result:
@@ -434,6 +451,7 @@ The Reviewer never edits the plan; it returns only a structured result:
   "newFindings": [
     {
       "relatedToFindingId": null,
+      "relationKind": null,
       "noveltyRationale": "An independent persistence issue the previous round did not cover.",
       "severity": "blocker",
       "category": "correctness",
@@ -481,16 +499,25 @@ decide review staleness.
 The Reviewer must:
 
 - give a `resolved`, `still_open`, `withdrawn`, or `severity_changed`
-  disposition for every previous finding that is still at critical severity
-  and not closed/downgraded by a human override;
+  disposition for every **active** finding — every severity, not just
+  critical — excluding those a human override closed;
 - back every new finding with repository evidence, the plan section it
   targets, and the required change;
 - distinguish technical-correctness problems from pure implementation
   preference;
 - set `relatedToFindingId` on every new finding (`null` when unrelated), and
-  when related, justify via `noveltyRationale` why it is not a resubmission
-  of the same problem. The orchestrator validates only field presence and ID
-  references; it never attempts semantic-equivalence judgment.
+  when related, classify the link with `relationKind`:
+  - `recurrence` — the same underlying defect resurfacing after a failed fix.
+    It inherits the ancestor's `criticalReviewStreak + 1`, so a defect that
+    keeps returning under new IDs still converges on the stall gate.
+  - `adjacent` — a distinct defect near the ancestor. Starts a fresh streak.
+
+  `noveltyRationale` remains the Reviewer's argument for why the finding is not
+  a resubmission. The orchestrator validates only field presence, ID
+  references, and `relatedToFindingId`/`relationKind` agreement; it never
+  attempts semantic-equivalence judgment. Classification is therefore the
+  Reviewer's honest report, and the Reviewer is given its closed findings as
+  history precisely so it can recognize a recurrence at all.
 
 Finding IDs are assigned by the orchestrator. Models may only reference
 existing IDs and can neither rewrite them nor reuse another finding's ID.
@@ -536,7 +563,11 @@ patch:
 }
 ```
 
-In revision rounds the Author must address every open `blocker` and `major`.
+In revision rounds the Author must address every **active** finding — every
+open severity, not only the blocking ones. A `minor` is cheap to fix while the
+plan is still text, and answering it is what closes it: an unanswered `minor`
+stays open and is handed back next round. Closing one via `rejected` with a
+reason is a complete answer, so this obligation costs a sentence, not a round.
 Allowed actions:
 
 - `accepted`: the plan was changed as required.
@@ -800,6 +831,16 @@ Any of the following triggers `needs_human`:
   second consecutive unresolved re-review counts 2 and triggers
   adjudication. The Author therefore gets two repair attempts, and status
   oscillation cannot evade the counter.
+- The same finding recurring under a **new ID** counts the same way. A
+  `recurrence` link inherits `ancestor.criticalReviewStreak + 1`, and the
+  streak now survives the ancestor being closed, so "resolve F001 → re-file
+  the identical defect as F013" accumulates toward adjudication instead of
+  resetting it. Without this, a loop where the Author fixes the letter of each
+  finding while the Reviewer re-finds its substance burns every round at full
+  cost and lands on `max-rounds` with no signal that it was stuck. The counter
+  depends on the Reviewer classifying honestly; it is given its closed findings
+  as history so the classification is possible, but the orchestrator cannot
+  verify it semantically.
 - The Author fails to address every open critical finding.
 - The frozen requirement's hash changes.
 - Provider/workflow failures in the same phase reach `maxProviderFailures`
