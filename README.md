@@ -33,11 +33,24 @@ requirement appendix.
 ## Why
 
 Single-model plans have single-model blind spots. In real use, the reviewing
-model consistently catches requirement-coverage gaps and correctness issues
-the author missed (mid-operation reconnect races, missing client surfaces,
-non-atomic commit points) — and the forced revision loop resolves them with
-repository evidence rather than vibes. Every round is a file on disk you can
-audit later: who claimed what, what changed, and why it was approved.
+model catches requirement-coverage gaps and correctness issues the author
+missed (mid-operation reconnect races, missing client surfaces, non-atomic
+commit points) — and the forced revision loop resolves them with repository
+evidence rather than vibes. Every round is a file on disk you can audit later:
+who claimed what, what changed, and why it was approved.
+
+The blind spots are genuinely per-model, not merely per-role. Two reviews of one
+frozen requirement, roles swapped, produced findings whose overlap was close to
+zero: one reviewer caught an undocumented edge-cache invariant the other missed
+entirely, while the other caught a requirement field the first had silently
+dropped. Both were right. Neither was sufficient alone.
+
+Which is also the honest caveat: **the loop is only as strict as the reviewing
+model.** The same plan that drew a `major` from a frontier model was approved in
+one round with zero findings by a small one. A reviewer that finds nothing is
+indistinguishable from a plan with nothing wrong — until you read the summary and
+notice it never cited a single file. Read [Model selection](#model-selection)
+before trusting an approval.
 
 ## Requirements
 
@@ -178,6 +191,9 @@ Key options (`run`, and where noted `resume`):
 
 ```text
 --author / --reviewer        claude | codex            (must differ)
+--author-model / --reviewer-model                      see Model selection below
+                             default: $PLAN_FORGE_{CLAUDE,CODEX}_MODEL, else the
+                             provider CLI's own default
 --author-effort / --reviewer-effort                    (also on resume)
                              claude: low|medium|high|xhigh|max   default xhigh
                              codex:  none|minimal|low|medium|high|xhigh   default high
@@ -187,11 +203,50 @@ Key options (`run`, and where noted `resume`):
 --clear-failures --reason "..."          resume only: unlatch provider-failure stops
 ```
 
+## Model selection
+
+Which model reviews your plan matters more than any other setting here. Resolution
+order, per role:
+
+1. `--author-model` / `--reviewer-model`
+2. `PLAN_FORGE_CLAUDE_MODEL` / `PLAN_FORGE_CODEX_MODEL`
+3. the provider CLI's own built-in default
+
+```bash
+# Hold a choice across runs — put it in your shell profile
+export PLAN_FORGE_CODEX_MODEL=gpt-5.6-sol
+
+# Or per run
+plan-forge run --task dark-mode --requirement docs/requirements/dark-mode.md \
+  --author claude --reviewer codex --reviewer-model gpt-5.6-sol
+```
+
+> [!IMPORTANT]
+> **`~/.codex/config.toml` does not apply.** The codex adapter passes
+> `--ignore-user-config` on purpose — a review must not silently depend on
+> whatever is in your local config, or the same task would review differently on
+> two machines and the audit trail could not explain why. The cost of that
+> guarantee is that a `model = "..."` you set there is **not** honoured. Without
+> an explicit model or env var, codex falls back to its own built-in default,
+> which is a small, fast model — and a small model is a poor reviewer.
+>
+> This fails silently, which is what makes it worth a callout: a reviewer that
+> finds nothing looks exactly like a strict reviewer with nothing to find. Set
+> the env var.
+
+There is deliberately no default model baked into plan-forge. Unlike effort —
+whose values are universal — model availability depends on the account behind the
+provider CLI, so naming one would 400 for everyone who lacks it, from inside a
+subprocess, with no obvious cause. `doctor` verifies the CLIs and their flags; it
+cannot verify which models your account can reach.
+
 ## How it stays trustworthy
 
 - **Models are read-only.** Claude runs `--safe-mode` with only
   `Read/Glob/Grep`; Codex runs in its `read-only` sandbox with user config
-  ignored. The orchestrator is the only writer, and its single write outside
+  ignored, so a run cannot depend on machine-local settings (see
+  [Model selection](#model-selection) — this is why the model must be passed
+  explicitly). The orchestrator is the only writer, and its single write outside
   the runtime dir is the approved-plan archive.
 - **Artifact graph over sessions.** Each round commits an authoritative
   `author-output.json` (plan + per-finding resolutions) and an
@@ -216,7 +271,7 @@ Runtime state lives in `.plan-forge/<task-id>/` (add `.plan-forge/` to your
 ## Development
 
 ```bash
-npm test                      # 28 tests, fake providers, zero model cost
+npm test                      # 31 tests, fake providers, zero model cost
 PLAN_FORGE_LIVE=1 node --test test/live.test.mjs   # opt-in real two-model smoke
 ```
 
