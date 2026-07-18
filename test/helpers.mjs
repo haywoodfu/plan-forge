@@ -24,30 +24,37 @@ Exercise the workflow with unit tests and fake-provider integration tests, inclu
 `;
 }
 
-export function fakeProvider(name, outputs) {
+export function fakeProvider(name, outputs, meta = {}) {
   let calls = 0;
+  const wrap = (data) => ({
+    data: structuredClone(data),
+    meta: {
+      provider: name,
+      model: `${name}-test`,
+      cliVersion: 'test',
+      usage: null,
+      costUsd: null,
+      sessionId: null,
+      ...meta
+    }
+  });
   return {
     name,
     get calls() {
       return calls;
     },
-    async invoke() {
+    async invoke(request) {
       const next = outputs[calls];
       calls += 1;
       if (next instanceof Error) throw next;
-      if (typeof next === 'function') return next(calls);
+      // A function output sees the invocation (prompt included) and may return
+      // either raw data or a full { data, meta } envelope.
+      if (typeof next === 'function') {
+        const produced = await next(calls, request);
+        return produced?.data ? produced : wrap(produced);
+      }
       if (!next) throw new Error(`${name} fake provider ran out of outputs`);
-      return {
-        data: structuredClone(next),
-        meta: {
-          provider: name,
-          model: `${name}-test`,
-          cliVersion: 'test',
-          usage: null,
-          costUsd: null,
-          sessionId: null
-        }
-      };
+      return wrap(next);
     }
   };
 }
@@ -69,15 +76,13 @@ export async function initTask(repoRoot, taskId = 'test-task', overrides = {}) {
     requirementText,
     options: {
       author: 'claude',
-      reviewer: 'codex',
+      reviewers: [{ provider: 'codex', model: null, effort: null, claudeMaxBudgetUsd: null }],
       authorModel: null,
-      reviewerModel: null,
       maxRounds: 6,
       maxProviderFailures: 2,
       authorTimeoutMs: 5000,
       reviewerTimeoutMs: 5000,
       claudeAuthorMaxBudgetUsd: null,
-      claudeReviewerMaxBudgetUsd: null,
       ...optionOverrides
     }
   });

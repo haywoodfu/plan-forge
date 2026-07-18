@@ -1,0 +1,163 @@
+{
+  "description": "Orchestrator-internal schema for a merged round review (meta.schemaVersion 2). Never shown to a provider, so it may use const, pattern, and optional-free strictness. Provenance (reviewers, raisedBy, sourceIndex, arbitration) is required, not tolerated: the orchestrator writes every byte of this artifact, so a missing field is a bug, never a legacy accommodation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta", "review"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "role",
+        "round",
+        "planSha256",
+        "promptSha256",
+        "startedAt",
+        "completedAt",
+        "gitHead",
+        "gitDirty",
+        "reviewers"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "role": { "const": "reviewer" },
+        "round": { "type": "integer", "minimum": 1 },
+        "planSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "promptSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "startedAt": { "type": "string" },
+        "completedAt": { "type": "string" },
+        "gitHead": { "type": ["string", "null"] },
+        "gitDirty": { "type": ["boolean", "null"] },
+        "reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "slot",
+              "provider",
+              "model",
+              "cliVersion",
+              "effort",
+              "startedAt",
+              "completedAt",
+              "usage",
+              "costUsd",
+              "sessionId",
+              "captureSha256"
+            ],
+            "properties": {
+              "slot": { "type": "string", "pattern": "^R[1-9][0-9]*$" },
+              "provider": { "enum": ["claude", "codex"] },
+              "model": { "type": ["string", "null"] },
+              "cliVersion": { "type": ["string", "null"] },
+              "effort": { "type": ["string", "null"] },
+              "startedAt": { "type": "string" },
+              "completedAt": { "type": "string" },
+              "usage": { "type": ["object", "null"] },
+              "costUsd": { "type": ["number", "null"] },
+              "sessionId": { "type": ["string", "null"] },
+              "captureSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "summary", "summaries", "previousFindings", "newFindings"],
+      "properties": {
+        "verdict": { "enum": ["approved", "changes_requested"] },
+        "summary": { "type": "string" },
+        "summaries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["slot", "summary"],
+            "properties": {
+              "slot": { "type": "string", "pattern": "^R[1-9][0-9]*$" },
+              "summary": { "type": "string" }
+            }
+          }
+        },
+        "previousFindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "status", "effectiveSeverity", "explanation", "arbitration"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^F[0-9]{3,}$" },
+              "status": { "enum": ["resolved", "still_open", "withdrawn", "severity_changed"] },
+              "effectiveSeverity": { "enum": ["blocker", "major", "minor", "nit", null] },
+              "explanation": { "type": "string" },
+              "arbitration": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["winner", "dispositions"],
+                "properties": {
+                  "winner": { "type": "string", "pattern": "^R[1-9][0-9]*$" },
+                  "dispositions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["slot", "status", "effectiveSeverity", "explanation"],
+                      "properties": {
+                        "slot": { "type": "string", "pattern": "^R[1-9][0-9]*$" },
+                        "status": { "enum": ["resolved", "still_open", "withdrawn", "severity_changed"] },
+                        "effectiveSeverity": { "enum": ["blocker", "major", "minor", "nit", null] },
+                        "explanation": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "newFindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "relatedToFindingId",
+              "relationKind",
+              "noveltyRationale",
+              "severity",
+              "category",
+              "planSection",
+              "problem",
+              "evidence",
+              "requiredChange",
+              "raisedBy",
+              "sourceIndex"
+            ],
+            "properties": {
+              "id": { "type": "string", "pattern": "^F[0-9]{3,}$" },
+              "relatedToFindingId": { "type": ["string", "null"], "pattern": "^F[0-9]{3,}$" },
+              "relationKind": { "enum": ["recurrence", "adjacent", null] },
+              "noveltyRationale": { "type": "string" },
+              "severity": { "enum": ["blocker", "major", "minor", "nit"] },
+              "category": { "type": "string" },
+              "planSection": { "type": "string" },
+              "problem": { "type": "string" },
+              "evidence": { "type": "array", "items": { "type": "string" } },
+              "requiredChange": { "type": "string" },
+              "raisedBy": { "type": "string", "pattern": "^R[1-9][0-9]*$" },
+              "sourceIndex": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

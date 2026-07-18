@@ -26,7 +26,7 @@ async function runtime(repoRoot, author, reviewer) {
     taskId: 'workflow',
     schemas: await loadSchemas(toolRoot),
     templates: await loadPromptTemplates(toolRoot),
-    providers: { author, reviewer },
+    providers: { author, reviewers: [reviewer] },
     agentsMd: '# Test instructions'
   };
 }
@@ -268,16 +268,19 @@ test('resume-time setting overrides persist into task.json', async (t) => {
   await initTask(repoRoot, 'workflow');
   const before = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'task.json'), 'utf8'));
   assert.equal(before.authorEffort, 'xhigh');
-  assert.equal(before.reviewerEffort, 'high');
+  assert.equal(before.reviewers[0].effort, 'high');
   const updated = await updateTaskSettings({ repoRoot, taskId: 'workflow', reviewerTimeoutMs: 1800000, reviewerEffort: 'xhigh' });
   assert.equal(updated.reviewerTimeoutMs, 1800000);
-  assert.equal(updated.reviewerEffort, 'xhigh');
+  assert.equal(updated.reviewers[0].effort, 'xhigh');
   assert.equal(updated.authorTimeoutMs, before.authorTimeoutMs);
   assert.equal(updated.authorEffort, 'xhigh');
   assert.equal(updated.requirementSha256, before.requirementSha256);
   const persisted = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'task.json'), 'utf8'));
   assert.equal(persisted.reviewerTimeoutMs, 1800000);
-  assert.equal(persisted.reviewerEffort, 'xhigh');
+  // The roster was updated, not replaced or dropped — the frozen-shape rule.
+  assert.equal(persisted.reviewers.length, 1);
+  assert.equal(persisted.reviewers[0].provider, 'codex');
+  assert.equal(persisted.reviewers[0].effort, 'xhigh');
   await assert.rejects(
     () => updateTaskSettings({ repoRoot, taskId: 'workflow', reviewerEffort: 'max' }),
     /invalid effort "max" for codex/
@@ -294,32 +297,149 @@ test('effort resolution applies per-provider defaults and enums', () => {
   assert.throws(() => resolveEffort('gemini', 'high'), /unsupported provider/);
 });
 
-test('human override closes a blocker without rewriting review history', async (t) => {
+test('a human override buys a re-review, never an approval, and does not rewrite review history', async (t) => {
   const repoRoot = await tempRepo();
   t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
   await initTask(repoRoot, 'workflow', { maxRounds: 1 });
-  const author = fakeProvider('claude', [{ planMarkdown: plan('Override'), resolutions: [] }]);
+  const author = fakeProvider('claude', [
+    { planMarkdown: plan('Override'), resolutions: [] },
+    { planMarkdown: plan('Override'), resolutions: [] }
+  ]);
   const reviewer = fakeProvider('codex', [
-    { verdict: 'changes_requested', previousFindings: [], newFindings: [newBlocker()], summary: 'blocker' }
+    { verdict: 'changes_requested', previousFindings: [], newFindings: [newBlocker()], summary: 'blocker' },
+    { verdict: 'approved', previousFindings: [], newFindings: [], summary: 'the ruling stands and the plan holds' }
   ]);
   const args = await runtime(repoRoot, author, reviewer);
-  const blocked = await runWorkflow(args);
-  assert.equal(blocked.status, 'needs_human');
+  assert.equal((await runWorkflow(args)).status, 'needs_human');
+
   await applyOverride({
-    repoRoot,
-    taskId: 'workflow',
-    schemas: args.schemas,
-    findingId: 'F001',
-    disposition: 'withdrawn',
-    severity: null,
-    reason: 'human accepted alternate evidence'
+    repoRoot, taskId: 'workflow', schemas: args.schemas,
+    findingId: 'F001', disposition: 'withdrawn', severity: null, reason: 'human accepted alternate evidence'
   });
   const approved = await runWorkflow(args);
   assert.equal(approved.status, 'approved');
+
+  // The override ruled on the finding, not on the plan. An approval it did not
+  // earn from a reviewer would be a human fiat wearing a review's clothes — so
+  // the ruling buys exactly one more round, past the round limit that stopped it.
+  assert.equal(author.calls, 2);
+  assert.equal(reviewer.calls, 2);
+  const round2 = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'rounds', '002', 'review.json')));
+  assert.equal(round2.review.verdict, 'approved');
+  const approval = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'approval.json')));
+  assert.equal(approval.round, 2);
+
+  const round1 = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'rounds', '001', 'review.json')));
+  assert.equal(round1.review.newFindings[0].id, 'F001');
+  assert.equal(round1.review.verdict, 'changes_requested');
+});
+
+test('a still-blocked task stays stopped after a partial ruling', async (t) => {
+  const repoRoot = await tempRepo();
+  t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
+  await initTask(repoRoot, 'workflow', { maxRounds: 1 });
+  const second = { ...newBlocker(), problem: 'a second, independent blocker' };
+  const author = fakeProvider('claude', [{ planMarkdown: plan('Partial'), resolutions: [] }]);
+  const reviewer = fakeProvider('codex', [
+    { verdict: 'changes_requested', previousFindings: [], newFindings: [newBlocker(), second], summary: 'two blockers' }
+  ]);
+  const args = await runtime(repoRoot, author, reviewer);
+  assert.equal((await runWorkflow(args)).status, 'needs_human');
+
+  await applyOverride({
+    repoRoot, taskId: 'workflow', schemas: args.schemas,
+    findingId: 'F001', disposition: 'withdrawn', severity: null, reason: 'only ruled on the first'
+  });
+  // Ruling on one of two does not clear the path; spending a round on a finding
+  // the author already failed would burn money the human never authorized.
+  const still = await runWorkflow(args);
+  assert.equal(still.status, 'needs_human');
   assert.equal(author.calls, 1);
   assert.equal(reviewer.calls, 1);
-  const review = JSON.parse(await fsp.readFile(path.join(repoRoot, '.plan-forge', 'workflow', 'rounds', '001', 'review.json')));
-  assert.equal(review.review.newFindings[0].id, 'F001');
+});
+
+test('a deliberate stop publishes the plan for human review, and approval retracts it', async (t) => {
+  const repoRoot = await tempRepo();
+  t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
+  await initTask(repoRoot, 'workflow', { maxRounds: 2 });
+  const rejectF001 = [{
+    findingId: 'F001', action: 'rejected', changedSections: [],
+    explanation: 'the existing guard already covers this path'
+  }];
+  const author = fakeProvider('claude', [
+    { planMarkdown: plan('Stalled'), resolutions: [] },
+    { planMarkdown: plan('Stalled'), resolutions: rejectF001 },
+    { planMarkdown: plan('Stalled'), resolutions: [] }
+  ]);
+  const stillOpen = { id: 'F001', status: 'still_open', effectiveSeverity: null, explanation: 'the guard runs too late' };
+  const reviewer = fakeProvider('codex', [
+    { verdict: 'changes_requested', previousFindings: [], newFindings: [newBlocker()], summary: 'blocker' },
+    { verdict: 'changes_requested', previousFindings: [stillOpen], newFindings: [], summary: 'still blocked' },
+    { verdict: 'approved', previousFindings: [], newFindings: [], summary: 'the ruling stands and the plan holds' }
+  ]);
+  const args = await runtime(repoRoot, author, reviewer);
+  const approvedPath = path.join(repoRoot, 'docs', 'plans', 'workflow.md');
+  const pendingPath = path.join(repoRoot, 'docs', 'plans', 'needs_human', 'workflow.md');
+
+  assert.equal((await runWorkflow(args)).status, 'needs_human');
+
+  // The plan a human must adjudicate cannot live only in the gitignored runtime
+  // dir — that is the whole point of publishing it.
+  const pending = await fsp.readFile(pendingPath, 'utf8');
+  assert.match(pending, /^<!-- plan-forge: task=workflow round=2 author=claude reviewer=codex status=needs_human /);
+  assert.match(pending, /blockingFindingIds=F001/);
+  assert.doesNotMatch(pending, /approvedAt=/);
+  assert.match(pending, /# Stalled/);
+  assert.match(pending, /## Appendix: Frozen Requirement/);
+
+  // The brief must state why it stopped and carry BOTH sides, or the human
+  // cannot decide from this file and the agent cannot ask from it either.
+  assert.match(pending, /# Decision required — workflow/);
+  assert.match(pending, /did not pass the gate/);
+  assert.match(pending, /round limit \(2\) was reached/);
+  assert.match(pending, /the guard runs too late/);                    // reviewer's position
+  assert.match(pending, /`rejected` — the existing guard already covers/); // author's position
+  assert.match(pending, /## Your options/);
+  assert.match(pending, /new task id/);                                // the requirement-conflict escape
+  // It must never be mistaken for a gate-passed plan.
+  await assert.rejects(() => fsp.access(approvedPath), /ENOENT/);
+
+  await applyOverride({
+    repoRoot, taskId: 'workflow', schemas: args.schemas,
+    findingId: 'F001', disposition: 'withdrawn', severity: null, reason: 'human accepted the counter-evidence'
+  });
+  assert.equal((await runWorkflow(args)).status, 'approved');
+
+  assert.match(await fsp.readFile(approvedPath, 'utf8'), /status=approved /);
+  // The stale pending copy would otherwise contradict the approved one forever.
+  await assert.rejects(() => fsp.access(pendingPath), /ENOENT/);
+});
+
+test('a provider-failure stop publishes nothing — it is an environment fault, not a verdict', async (t) => {
+  const repoRoot = await tempRepo();
+  t.after(() => fsp.rm(repoRoot, { recursive: true, force: true }));
+  await initTask(repoRoot, 'workflow');
+  const author = fakeProvider('claude', [
+    { planMarkdown: plan('Round 1'), resolutions: [] },
+    { planMarkdown: plan('Round 2'), resolutions: resolution() }
+  ]);
+  const fail = () => new ProviderError('permanent failure');
+  const reviewer = fakeProvider('codex', [
+    { verdict: 'changes_requested', previousFindings: [], newFindings: [newBlocker()], summary: 'blocker' },
+    fail(), fail()
+  ]);
+  const args = await runtime(repoRoot, author, reviewer);
+  await assert.rejects(() => runWorkflow(args), /permanent failure/);
+  const second = await runWorkflow(args);
+  assert.equal(second.status, 'needs_human');
+  // A classed error is what separates this from a deliberate stop, which carries null.
+  assert.ok(second.errorClass, 'a provider-failure stop must carry an errorClass');
+
+  // Nothing here is a human design decision; the environment broke.
+  await assert.rejects(
+    () => fsp.access(path.join(repoRoot, 'docs', 'plans', 'needs_human', 'workflow.md')),
+    /ENOENT/
+  );
 });
 
 test('inline requirement text freezes without a source file', async (t) => {

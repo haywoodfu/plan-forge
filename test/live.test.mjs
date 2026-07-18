@@ -30,7 +30,7 @@ test('live Claude/Codex workflow smoke test', { skip: process.env.PLAN_FORGE_LIV
     agentsMd: '# Test repository\nPlan only; never edit files.\n',
     providers: {
       author: createClaudeProvider({ repoRoot, maxBudgetUsd: 2 }),
-      reviewer: createCodexProvider({ repoRoot })
+      reviewers: [createCodexProvider({ repoRoot })]
     }
   });
   assert.ok(['approved', 'needs_human'].includes(result.status));

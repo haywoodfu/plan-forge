@@ -11,30 +11,39 @@ import { createClaudeProvider } from './lib/providers/claude.mjs';
 import { createCodexProvider } from './lib/providers/codex.mjs';
 import { loadPromptTemplates } from './lib/prompts.mjs';
 import { loadSchemas } from './lib/schema.mjs';
-import { applyOverride, clearFailures, initializeTask, inspectTask, readFinal, resolveEffort, resolveModel, runWorkflow, updateTaskSettings } from './lib/workflow.mjs';
+import { reviewerRosterFromArgs } from './lib/roster.mjs';
+import { applyOverride, clearFailures, initializeTask, inspectTask, readFinal, resolveEffort, resolveModel, reviewerSlots, runWorkflow, updateTaskSettings } from './lib/workflow.mjs';
 
 const toolRoot = path.dirname(fileURLToPath(import.meta.url));
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
   const values = {};
+  // Ordered [key, value] pairs beside the last-wins map: positional binding
+  // for repeated --reviewer needs argv order, which the map cannot carry.
+  // Every existing option keeps reading `values`.
+  const tokens = [];
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index];
     if (!token.startsWith('--')) throw new Error(`unexpected positional argument: ${token}`);
     const equal = token.indexOf('=');
     if (equal !== -1) {
       values[token.slice(2, equal)] = token.slice(equal + 1);
+      tokens.push([token.slice(2, equal), token.slice(equal + 1)]);
       continue;
     }
     const key = token.slice(2);
     const next = rest[index + 1];
-    if (!next || next.startsWith('--')) values[key] = true;
-    else {
+    if (!next || next.startsWith('--')) {
+      values[key] = true;
+      tokens.push([key, true]);
+    } else {
       values[key] = next;
+      tokens.push([key, next]);
       index += 1;
     }
   }
-  return { command, values };
+  return { command, values, tokens };
 }
 
 function numberOption(values, key, fallback) {
@@ -77,41 +86,36 @@ async function buildRuntime(repoRoot, task) {
         budget: task.author === 'claude' ? task.claudeAuthorMaxBudgetUsd : null,
         effort: resolveEffort(task.author, task.authorEffort ?? null)
       }),
-      reviewer: providerFor(task.reviewer, {
+      // One adapter per slot, parallel to reviewerSlots. A pinned model
+      // short-circuits resolveModel's env lookup; a stored null falls through
+      // to it — "frozen at N>1" and "late-bound at N=1" are the same line.
+      reviewers: reviewerSlots(task).map((slot) => providerFor(slot.provider, {
         repoRoot,
-        model: resolveModel(task.reviewer, task.reviewerModel ?? null),
-        budget: task.reviewer === 'claude' ? task.claudeReviewerMaxBudgetUsd : null,
-        effort: resolveEffort(task.reviewer, task.reviewerEffort ?? null)
-      })
+        model: resolveModel(slot.provider, slot.model),
+        budget: slot.provider === 'claude' ? slot.claudeMaxBudgetUsd : null,
+        effort: resolveEffort(slot.provider, slot.effort)
+      }))
     }
   };
 }
 
-function taskOptions(values) {
+function taskOptions(values, tokens) {
   const author = values.author || 'claude';
-  const reviewer = values.reviewer || 'codex';
-  if (!['claude', 'codex'].includes(author) || !['claude', 'codex'].includes(reviewer)) {
+  if (!['claude', 'codex'].includes(author)) {
     throw new Error('--author and --reviewer must be claude or codex');
-  }
-  if (author === reviewer && !values['allow-same-provider']) {
-    throw new Error('author and reviewer must differ unless --allow-same-provider is set');
   }
   return {
     author,
-    reviewer,
+    reviewers: reviewerRosterFromArgs({ author, tokens, values }),
     authorModel: values['author-model'] || null,
-    reviewerModel: values['reviewer-model'] || null,
     authorEffort: values['author-effort'] || null,
-    reviewerEffort: values['reviewer-effort'] || null,
     publishDir: values['publish-dir'] || null,
     maxRounds: numberOption(values, 'max-rounds', 6),
     maxProviderFailures: numberOption(values, 'max-provider-failures', 2),
-    authorTimeoutMs: numberOption(values, 'author-timeout', 1200) * 1000,
+    authorTimeoutMs: numberOption(values, 'author-timeout', 1800) * 1000,
     reviewerTimeoutMs: numberOption(values, 'reviewer-timeout', 1200) * 1000,
     claudeAuthorMaxBudgetUsd: values['claude-author-max-budget-usd'] == null
-      ? null : numberOption(values, 'claude-author-max-budget-usd', null),
-    claudeReviewerMaxBudgetUsd: values['claude-reviewer-max-budget-usd'] == null
-      ? null : numberOption(values, 'claude-reviewer-max-budget-usd', null)
+      ? null : numberOption(values, 'claude-author-max-budget-usd', null)
   };
 }
 
@@ -126,7 +130,7 @@ function printStatus(status) {
 }
 
 async function main() {
-  const { command, values } = parseArgs(process.argv.slice(2));
+  const { command, values, tokens } = parseArgs(process.argv.slice(2));
   if (!command || command === '--help' || values.help) {
     process.stdout.write('Usage: plan-forge <run|resume|status|show|override|doctor> --task <id> [options]\n');
     return;
@@ -145,8 +149,14 @@ async function main() {
   const paths = taskPaths(repoRoot, taskId);
 
   if (command === 'status') {
-    const schemas = await loadSchemas(toolRoot);
-    printStatus(await inspectTask({ repoRoot, taskId, schemas }));
+    // Templates and AGENTS.md let status report §7.3-accurate pending slots
+    // (a superseded capture is pending, not just a missing one).
+    const [schemas, templates, agentsMd] = await Promise.all([
+      loadSchemas(toolRoot),
+      loadPromptTemplates(toolRoot),
+      fsp.readFile(path.join(repoRoot, 'AGENTS.md'), 'utf8').catch(() => '')
+    ]);
+    printStatus(await inspectTask({ repoRoot, taskId, schemas, templates, agentsMd }));
     return;
   }
 
@@ -173,7 +183,7 @@ async function main() {
         taskId,
         requirementFile: fileArg && fileArg !== '-' ? path.resolve(repoRoot, fileArg) : null,
         requirementText,
-        options: taskOptions(values)
+        options: taskOptions(values, tokens)
       });
       logger.stage('task initialized', {
         requirement: fileArg ?? 'inline text',
@@ -196,7 +206,7 @@ async function main() {
           authorTimeoutMs: updated.authorTimeoutMs,
           reviewerTimeoutMs: updated.reviewerTimeoutMs,
           authorEffort: updated.authorEffort,
-          reviewerEffort: updated.reviewerEffort
+          reviewerEffort: reviewerSlots(updated).map((slot) => slot.effort).join(',')
         });
       }
       if (values['clear-failures']) {

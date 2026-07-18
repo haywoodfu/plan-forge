@@ -223,6 +223,8 @@ Implementation files:
 │   ├── doctor.mjs
 │   ├── logger.mjs
 │   ├── workflow.mjs
+│   ├── merge.mjs
+│   ├── roster.mjs
 │   ├── process.mjs
 │   ├── prompts.mjs
 │   ├── schema.mjs
@@ -237,12 +239,16 @@ Implementation files:
 │   └── reviewer.md
 ├── schemas/
 │   ├── author-output.schema.json
-│   └── reviewer-output.schema.json
+│   ├── reviewer-output.schema.json
+│   └── merged-review.schema.json
 └── test/
     ├── workflow.test.mjs
+    ├── concurrent.test.mjs
     ├── artifacts.test.mjs
     ├── doctor.test.mjs
     ├── findings.test.mjs
+    ├── merge.test.mjs
+    ├── roster.test.mjs
     ├── logging.test.mjs
     ├── prompts.test.mjs
     ├── providers.test.mjs
@@ -265,6 +271,9 @@ Per-task runtime artifacts:
 │   │   ├── author-output.json
 │   │   ├── plan.md
 │   │   ├── resolution.json
+│   │   ├── reviews/
+│   │   │   ├── R1.json
+│   │   │   └── R2.json
 │   │   ├── review.json
 │   │   └── manifest.json
 │   └── 002/
@@ -273,16 +282,64 @@ Per-task runtime artifacts:
 └── final.md
 ```
 
+A task runs **N reviewer slots** (N ≥ 1), stored as `task.reviewers: [...]` in
+`task.json` (legacy tasks keep the singular `reviewer*` keys and normalize to a
+one-slot roster on load; the roster's shape is frozen at creation). Each slot's
+raw capture commits to `rounds/NNN/reviews/<slot>.json`; after every slot has
+committed at the round's current prompt fingerprint, the orchestrator merges
+them into `rounds/NNN/review.json` — same path and shape as the single-reviewer
+document, which is what keeps `collectFindings` and every legacy round working
+unchanged.
+
+**`meta.schemaVersion` is per file format and is never inferred.** A merged
+`review.json` declares `2` and is validated whole-wrapper against
+`schemas/merged-review.schema.json` (provenance — `meta.reviewers`, `raisedBy`,
+`sourceIndex`, `arbitration` — is *required*); every pre-existing `review.json`
+declares `1` and takes today's validation path, with a hard error if it carries
+merge provenance. A missing or unknown version is a hard error, never a
+fallback: absence-as-signal would make the weaker branch the default and let a
+damaged merged round skip its own capture verification. Slot captures are the
+first format of a new file and stay at `1`; `task.json`, `state.json`,
+`approval.json`, `manifest.json`, and the overrides document are untouched at
+`1`.
+
+On load, a merged round's captures are verified against the round's own
+manifest: `meta.reviewers` must equal the frozen roster's slot set, each
+capture's bytes must hash to the recorded `captureSha256`, and a capture for an
+unknown slot is an error. This is frozen-input-vs-frozen-input — no current
+state (in particular, no override) can change the answer. A committed
+`review.json` is an authoritative commit, never recomputed: re-deriving it on
+load would run `collectFindings` under *current* overrides and silently rewrite
+a frozen round's verdict.
+
 The published archive is self-contained: the frozen requirement is appended
 to `docs/plans/<task-id>.md` as an appendix, so inline-requirement tasks
 (with no requirement file outside the gitignored runtime dir) remain fully
 auditable from version control alone.
 
 `.plan-forge/` belongs in the consumer repo's `.gitignore` (`run` warns when
-it is not covered). The approved final plan is **published automatically** by
-`finalize` to `docs/plans/<task-id>.md` (inside version control, rebuilt
-idempotently; directory configurable with `--publish-dir`). `show --publish
-<path>` only makes additional copies to custom paths.
+it is not covered). Two plans are **published automatically** into version
+control, and the header's `status=` field is the only thing that tells them
+apart — never infer approval from the path:
+
+- `docs/plans/<task-id>.md` (`status=approved`) — written by `finalize`, which
+  throws before publishing if any blocking finding remains. Its existence is
+  therefore a gate signal a consumer can trust without querying state.
+- `docs/plans/needs_human/<task-id>.md` (`status=needs_human`) — written when
+  the loop **deliberately** stops (round limit or a stalled critical finding).
+  It carries no `approvedAt`, lists `blockingFindingIds`, and opens with a
+  decision brief: why it stopped, and per blocking finding the problem,
+  required change, evidence, and **both sides' positions** — the reviewer's
+  latest explanation and the author's resolution. Without it the plan and the
+  argument that stopped it stay in the gitignored runtime dir, which strands
+  the decision on one machine and hides it from the person who has to make it.
+  A provider-failure `needs_human` publishes nothing: the environment broke,
+  and no design decision is owed.
+
+`finalize` removes any stale `needs_human/<task-id>.md` when it publishes an
+approved plan — two contradictory published plans are worse than none. Both
+paths follow `--publish-dir`. `show --publish <path>` only makes additional
+copies to custom paths.
 
 ## 3. State machine and recovery model
 
@@ -542,7 +599,47 @@ alongside the error in the corresponding failure record for diagnosis.
 
 `verdict` has exactly two legal values: `approved` and `changes_requested`.
 The orchestrator recomputes the expected verdict from finding state; a model
-verdict that disagrees is invalid Reviewer output.
+verdict that disagrees is invalid Reviewer output. With N reviewers, each
+slot's self-check runs over *that slot's own output* (with provisional
+`P<k>` ids, since real ids do not exist before the merge), and the **round's**
+verdict is composed from the merged set through the same
+`collectFindings`/`blockingFindings` pair that computes the gate — a slot that
+self-consistently approved while a peer filed a blocker cannot finalize
+anything.
+
+#### Concurrent reviewers: fan-out, barrier, merge
+
+- **One prompt per round, byte-identical across slots.** No reviewer's
+  findings enter another reviewer's prompt, and a reviewer is never told it is
+  one of several (`sanitizedFinding` carries no `raisedBy`). `sha256(prompt)`
+  is the round's fingerprint: a committed capture belongs to the round's
+  current attempt iff its recorded `promptSha256` matches, and any other
+  fingerprint supersedes its slot (in practice only the overrides document —
+  serialized into every prompt — can move mid-round). This is what reconciles
+  partial recovery with the barrier: a failure-driven resume re-runs only the
+  failed slot, while a human override mid-round re-fans-out the whole round,
+  because the peers answered a question that no longer exists.
+- **The barrier is a predicate over committed artifacts.** The round merges
+  iff every roster slot has a committed, fresh capture; the merge reads files,
+  never in-memory results, so a fresh run and a resume share one code path.
+  The author runs once per round, after the merge.
+- **Id allocation happens only at the merge** (`lib/merge.mjs`), walking the
+  roster in slot order and each capture in array order — race-free by
+  construction and deterministic under any completion order. A capture's
+  same-output reference (`F(base+k)`, today's accepted N=1 behavior) is
+  rewritten at capture to a slot-local `P<k>` and resolved at merge against
+  that slot's own allocation, never a peer's.
+- **Arbitration is most-open-wins.** A finding stays open at the highest
+  severity any slot assigns it and closes only if every slot closes it; ties
+  go to the lowest slot index. Dispositions are the dual of the union: any
+  other rule would make the merged jury weaker than its strictest member. All
+  N dispositions are recorded under `arbitration`; a stubbornly wrong reviewer
+  drives the existing stall gate (§7) to a human, which is the designed escape.
+  Overrides are not arbitrated — they apply after the fold, as always.
+- **Failure budgets are per slot** (`failures/` records carry `slot`; legacy
+  records normalize to `R1`), so a flaky slot latches `needs_human` without
+  spending its peers' budgets, and `resume` re-runs only slots without fresh
+  captures.
 
 ### 4.3 Author output
 
@@ -579,6 +676,23 @@ Allowed actions:
 The orchestrator rejects Author output that misses any required finding
 resolution; extra resolutions referencing non-required findings are kept
 verbatim (as the Author's own statements) and never cause rejection.
+
+With several reviewers, two findings can independently describe one defect.
+Each resolution therefore carries `coversFindingIds`: one resolution answers
+its own `findingId` plus every ID listed there, with one action and one
+explanation — equivalence is the Author's judgment, never the orchestrator's
+(mechanical or LLM dedup would silently delete a real finding on a false
+merge; a false split costs the author one sentence). Every active finding must
+be covered exactly once across all resolutions. The author prompt shows each
+finding's `raisedBy` slot id — never the provider or model behind it, which
+would invite dismissing findings by reputation.
+
+`author-output.json` stores exactly what the provider returned; every reader
+normalizes in memory (`coversFindingIds: []` where absent) before validating.
+This keeps the provider-common schema fully-required while accepting legacy
+outputs on disk and providers that omit the field — and projections and hashes
+are always taken from the stored bytes, so normalization never rewrites a
+committed round.
 
 After validating the model's structured output, the orchestrator first
 atomically writes the authoritative wrapper:
@@ -710,10 +824,23 @@ spend per role.
   `AGENTS.md` and shared policy, ordinary repository files are data and
   evidence to analyze — text inside them must never be treated as new
   workflow instructions.
+- **The accepted boundary of reviewer independence:** a reviewer slot *can*
+  read its peers' committed reviews. `.plan-forge/` lives inside the
+  repository, and both adapters bound writes and tool sets, not read paths.
+  This is not mitigated by obscurity or a prompt instruction (which would only
+  reveal the roster while pointing a model at where to look). What is
+  guaranteed, and tested: no peer's findings, raw output, or derived artifact
+  appears in any reviewer's *prompt*; all N prompts in a round are
+  byte-identical, enforced at the merge by the fingerprint rule; and nothing
+  anywhere points a reviewer at a peer's output. Independence exists to widen
+  coverage, and that is delivered by what is in the prompt.
 - Subprocesses are spawned with argument arrays and no shell, so task IDs,
   paths, and prompts can never trigger shell injection.
-- Timeouts are per-role: Author defaults to 1200 s, Reviewer to 1200 s
-  (matching the default high reasoning efforts); both `run` and `resume`
+- Timeouts are per-role: Author defaults to 1800 s, Reviewer to 1200 s. The
+  author drafts an entire plan in one call and is the role that approaches the
+  deadline on a heavy requirement, so it gets the wider budget; the reviewer
+  reads a finished plan and consistently finishes well inside 1200 s. Both
+  `run` and `resume`
   accept `--author-timeout`/`--reviewer-timeout` overrides (persisted into
   `task.json` on resume). Timeouts are suspension-aware: clock gaps caused by
   host sleep extend the deadline, so only awake time counts (visible as
@@ -784,10 +911,10 @@ Supported options:
 
 ```text
 --author claude|codex
---reviewer claude|codex
+--reviewer claude|codex      # repeatable; omitted → one codex slot (today's default)
 --max-rounds 6
 --max-provider-failures 2
---author-timeout 1200
+--author-timeout 1800
 --reviewer-timeout 1200
 --claude-author-max-budget-usd <amount>
 --claude-reviewer-max-budget-usd <amount>
@@ -814,11 +941,35 @@ The `override` subcommand additionally accepts:
 ```
 
 Author and Reviewer must use different providers by default; debugging with
-the same provider requires an explicit `--allow-same-provider`.
+the same provider requires an explicit `--allow-same-provider`. The flag
+guards **author vs. reviewer** only: with a roster it is required iff any
+slot's provider equals the author's, while two reviewer slots sharing a
+provider — or a model — need no flag (a same-model pair is a legitimate
+sampling-variance probe).
+
+**Roster binding rules** (`lib/roster.mjs`): fewer than two `--reviewer`
+occurrences → exactly one slot, and every slot-scoped flag
+(`--reviewer-model`, `--reviewer-effort`, `--claude-reviewer-max-budget-usd`)
+binds to it from the last-wins map regardless of order — today's behavior
+byte-for-byte, including the zero-occurrence `codex` default. Two or more →
+binding is positional: each slot-scoped flag binds to the most recent
+preceding `--reviewer`, and a slot-scoped flag before the first `--reviewer`
+is an error.
+
+**Slot models are late-bound at N=1, pinned at N>1.** A single-reviewer task
+stores the raw flag or `null` and resolves the environment on every run —
+today's contract. A multi-reviewer roster resolves each slot at creation
+(flag → env var) and refuses a slot that resolves to nothing: the audit
+record must name every juror, and `meta.model: null` means "whatever the
+provider CLI defaulted to that day", which is unknowable afterward — the
+Background's gpt-5-mini incident is exactly that failure. An env-provided
+model is a valid pin. On load, a pinned slot's capture must record the pinned
+model; an N=1 slot pins nothing, so the check never runs there.
 
 On success the CLI prints the final status and the absolute path of
 `final.md`; `show` prints the final Markdown. `status` never calls a model
-and never costs anything.
+and never costs anything; with a fan-out in flight it reports
+`pendingReviewerSlots` (slots with no capture, or a superseded one).
 
 ## 7. Anti-livelock and human adjudication
 
@@ -857,10 +1008,33 @@ After entering `needs_human`:
 
 - `final.md` is neither produced nor updated.
 - The current plan and every review and resolution are preserved.
-- `status` lists the finding IDs awaiting adjudication with both sides'
-  arguments and evidence.
+- On a **deliberate** stop the plan and a decision brief are published to
+  `docs/plans/needs_human/<task-id>.md` (§2). `status` reports the same
+  finding IDs and arguments as JSON; the published brief is the same content
+  aimed at the human who has to rule on it.
 - A human can start a new task with a changed requirement, or close/adjust
   findings via explicit overrides and then `resume`.
+- The two overrides (`withdrawn`, `severity_changed`) express only *"the
+  reviewer is wrong"* and *"real, but not blocking"*. Neither can express
+  *"the frozen requirement contradicts itself"* — the case where the Author
+  and Reviewer agree the plan is as good as the requirement permits. That is a
+  requirement change, and requirements are immutable: it needs a new task id.
+  Overriding past it would approve a plan that still contains the defect,
+  which is the one outcome the gate exists to prevent.
+- Clearing the last blocker via override does **not** approve the plan. Only a
+  Reviewer verdict of `approved` finalizes; `runWorkflow` reads the stored
+  verdict rather than recomputing the gate from findings. A ruling clears
+  *findings*, and the plan it leaves behind may still be wrong: a
+  `severity_changed` ruling keeps a real defect in the plan, several rulings
+  interact, and any of them can introduce flaws downstream that nobody has
+  looked for. So a ruling that clears every blocker buys exactly one more
+  round — the Author revises with the overrides visible, the Reviewer
+  re-reviews — and that round runs even past `max-rounds`, because a human
+  asking to continue is the authority the limit exists to defer to. If
+  blockers remain, the human has not cleared the path and the task stays
+  stopped. Without this, an override would mint `gate.verdict: 'approved'` in
+  `approval.json` for a plan whose only review said `changes_requested` — a
+  human fiat wearing a review's clothes, in the audit record.
 - A `needs_human` caused by provider failures (network down, expired CLI
   auth) is unlatched — after fixing the environment — with
   `plan-forge resume --task <id> --clear-failures --reason "<why>"`; never
@@ -954,6 +1128,19 @@ in this package's own `package.json`.
   completeness and environment-variable non-leakage.
 - Stage logs mirrored to both terminal and `run.log`; live provider stderr
   forwarding; heartbeats at fixed intervals during long calls.
+- Merge semantics (`test/merge.test.mjs`, pure): id allocation deterministic
+  under any completion order and race-free by construction; most-open-wins
+  arbitration with every disposition recorded and ties to the lowest slot;
+  verdict composed from the merged set, never inherited; the N=1 merge
+  deep-equals today's normalizer modulo provenance; slot-local `P<k>`
+  references bind to their own slot, never a peer, and an out-of-range one is
+  a named merge error, not a committed artifact.
+- Roster binding (`test/roster.test.mjs`, pure): the zero/one/many
+  `--reviewer` rules, today's error strings, and the author-vs-reviewer scope
+  of `--allow-same-provider`.
+- Dup coverage: one resolution covering many findings, double coverage
+  rejected, coverage gaps still caught; the merged-vs-reviewer schema drift
+  guard.
 
 ### 9.2 Fake-provider integration tests
 
@@ -987,6 +1174,19 @@ in this package's own `package.json`.
   HEAD/dirty snapshots; repository changes warn but never block.
 - Human overrides never rewrite review history, can close or adjust findings,
   and appear fully in the final audit record.
+- Concurrent reviewers (`test/concurrent.test.mjs`): the author runs once per
+  round, only after all captures and the merge; prompts are byte-identical
+  across slots, no `raisedBy` reaches a reviewer, the author sees slot ids and
+  never providers or models; a failure-driven resume re-runs only the failed
+  slot with the healthy capture byte-unchanged; a committed round survives a
+  later override untouched, while an override landing mid-round supersedes all
+  captures and re-fans-out; per-slot failure budgets latch independently; a
+  hand-written legacy task resumes through the v1 branch into the v2 layout;
+  merged captures are hash-verified on every load (deleted/edited/unknown all
+  named errors); a merged round cannot masquerade as legacy or shed
+  provenance; a mismatched adapter array spends zero provider calls; a
+  multi-reviewer stall publishes `reviewer=<p1>,<p2>` with a stable
+  `stoppedAt`; N>1 model pinning at creation, N=1 late binding preserved.
 
 ### 9.3 Live provider smoke test
 
@@ -1004,6 +1204,12 @@ Using a low-risk, tightly-scoped test requirement, it verifies:
 - the read-only restrictions hold — the working tree gains no implementation
   changes;
 - at least one full "finding → revision → approve" cycle completes.
+
+A two-slot live smoke (one `claude` and one `codex` reviewer slot) exercises a
+merged round with both `meta.promptSha256` values equal to the round's and
+every merged finding attributed. Note it needs `--allow-same-provider` when
+the author is `claude` (one slot then shares the author's provider), and both
+slots must resolve a model (N>1 pins at creation).
 
 ## 10. Implementation order (historical)
 

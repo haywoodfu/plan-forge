@@ -27,9 +27,15 @@
           },
           "explanation": {
             "type": "string"
+          },
+          "coversFindingIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "required": ["findingId", "action", "changedSections", "explanation"]
+        "required": ["findingId", "action", "changedSections", "explanation", "coversFindingIds"]
       }
     }
   },

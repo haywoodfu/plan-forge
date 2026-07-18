@@ -6,7 +6,7 @@ import {
   closedFindings,
   collectFindings,
   hasStalledCriticalFinding,
-  normalizeReviewerOutput,
+  normalizeSlotReview,
   validateAuthorResolutions
 } from '../lib/findings.mjs';
 
@@ -43,19 +43,24 @@ test('critical streak starts at zero and needs two failed re-reviews', () => {
   assert.equal(hasStalledCriticalFinding(state), true);
 });
 
-test('normalization assigns IDs and validates computed verdict', () => {
+test('capture normalization never allocates ids; the verdict self-check still runs', () => {
   const output = {
     verdict: 'changes_requested', previousFindings: [],
     newFindings: [{ ...finding, id: null }], summary: 'one blocker'
   };
-  const result = normalizeReviewerOutput(output, { round: 1, priorReviews: [], overrides: emptyOverrides });
-  assert.equal(result.normalized.newFindings[0].id, 'F001');
+  const result = normalizeSlotReview(output, { round: 1, priorReviews: [], overrides: emptyOverrides });
+  // Allocation is the merge's job (test/merge.test.mjs); a capture keeps null.
+  assert.equal(result.normalized.newFindings[0].id, null);
+  assert.throws(
+    () => normalizeSlotReview({ ...output, verdict: 'approved' }, { round: 1, priorReviews: [], overrides: emptyOverrides }),
+    /verdict must be changes_requested/
+  );
 });
 
 test('redundant effectiveSeverity echoes normalize to null; real unrequested changes reject', () => {
   const round1 = wrapper(1, [], [finding]);
   const base = { id: 'F001', explanation: 'checked' };
-  const run = (disposition) => normalizeReviewerOutput(
+  const run = (disposition) => normalizeSlotReview(
     { verdict: 'approved', previousFindings: [disposition], newFindings: [], summary: '' },
     { round: 2, priorReviews: [round1], overrides: emptyOverrides }
   );
@@ -64,7 +69,7 @@ test('redundant effectiveSeverity echoes normalize to null; real unrequested cha
   assert.equal(resolvedEcho.normalized.previousFindings[0].effectiveSeverity, null);
   assert.equal(resolvedEcho.coercions.length, 1);
 
-  const openEcho = normalizeReviewerOutput(
+  const openEcho = normalizeSlotReview(
     {
       verdict: 'changes_requested',
       previousFindings: [{ ...base, status: 'still_open', effectiveSeverity: 'blocker' }],
@@ -95,7 +100,7 @@ test('every open severity stays active, but only blocker and major block approva
 
 test('an open minor must be dispositioned but does not force changes_requested', () => {
   const round1 = wrapper(1, [], [{ ...finding, severity: 'minor' }]);
-  const review = (previousFindings) => normalizeReviewerOutput(
+  const review = (previousFindings) => normalizeSlotReview(
     { verdict: 'approved', previousFindings, newFindings: [], summary: '' },
     { round: 2, priorReviews: [round1], overrides: emptyOverrides }
   );
@@ -103,13 +108,18 @@ test('an open minor must be dispositioned but does not force changes_requested',
   // The old contract forbade dispositioning a minor, so it could never be closed.
   assert.throws(() => review([]), /missing=\[F001\]/);
 
+  // The fold over a committed round is the authority the capture feeds into.
+  const fold = (result) => collectFindings(
+    [round1, { meta: { round: 2 }, review: result.normalized }],
+    emptyOverrides
+  );
   const carried = review([stillOpenAt('F001')]);
   assert.equal(carried.normalized.verdict, 'approved');
-  assert.deepEqual(activeFindings(carried.findings).map((item) => item.id), ['F001']);
+  assert.deepEqual(activeFindings(fold(carried)).map((item) => item.id), ['F001']);
 
   const closed = review([resolvedAt('F001')]);
-  assert.deepEqual(activeFindings(closed.findings), []);
-  assert.deepEqual(closedFindings(closed.findings).map((item) => item.id), ['F001']);
+  assert.deepEqual(activeFindings(fold(closed)), []);
+  assert.deepEqual(closedFindings(fold(closed)).map((item) => item.id), ['F001']);
 });
 
 test('a recurring critical inherits its ancestor streak across a new id', () => {
@@ -158,7 +168,7 @@ test('a human override closes or downgrades, and only a close ends the obligatio
   assert.deepEqual(activeFindings(downgraded).map((item) => item.id), ['F001']);
   assert.deepEqual(blockingFindings(downgraded), []);
   assert.throws(
-    () => normalizeReviewerOutput(
+    () => normalizeSlotReview(
       { verdict: 'approved', previousFindings: [], newFindings: [], summary: '' },
       { round: 2, priorReviews: [round1], overrides: override('severity_changed', 'minor') }
     ),
@@ -168,7 +178,7 @@ test('a human override closes or downgrades, and only a close ends the obligatio
 
 test('relationKind must agree with relatedToFindingId', () => {
   const round1 = wrapper(1, [], [finding]);
-  const review = (extra) => normalizeReviewerOutput(
+  const review = (extra) => normalizeSlotReview(
     {
       verdict: 'changes_requested',
       previousFindings: [stillOpenAt('F001')],
@@ -181,7 +191,10 @@ test('relationKind must agree with relatedToFindingId', () => {
   assert.throws(() => review({ relatedToFindingId: 'F001', relationKind: null }), /relationKind/);
   assert.throws(() => review({ relatedToFindingId: null, relationKind: 'recurrence' }), /relationKind/);
   assert.throws(() => review({ relatedToFindingId: 'F404', relationKind: 'recurrence' }), /unknown id F404/);
-  assert.equal(review({ relatedToFindingId: 'F001', relationKind: 'recurrence' }).normalized.newFindings[0].id, 'F002');
+  // A prior-round reference passes through verbatim; allocation happens at merge.
+  const accepted = review({ relatedToFindingId: 'F001', relationKind: 'recurrence' }).normalized.newFindings[0];
+  assert.equal(accepted.id, null);
+  assert.equal(accepted.relatedToFindingId, 'F001');
 });
 
 test('author resolutions must cover required findings but may include extras', () => {
@@ -191,4 +204,31 @@ test('author resolutions must cover required findings but may include extras', (
   validateAuthorResolutions([covered, extra], required);
   assert.throws(() => validateAuthorResolutions([extra], required), /missing resolutions for F001/);
   assert.throws(() => validateAuthorResolutions([covered, covered], required), /duplicate resolution/);
+});
+
+test('one resolution may cover several equivalent findings exactly once', () => {
+  const required = [{ id: 'F001' }, { id: 'F002' }, { id: 'F003' }];
+  const covering = (covers) => ({
+    findingId: 'F001', action: 'accepted', changedSections: ['Implementation'],
+    explanation: 'one fix answers both', coversFindingIds: covers
+  });
+  const other = { findingId: 'F003', action: 'rejected', changedSections: [], explanation: 'not a defect' };
+
+  // Test 9: one resolution covers many.
+  validateAuthorResolutions([covering(['F002']), other], required);
+
+  // Test 10: double coverage rejected — two resolutions both answering F002.
+  assert.throws(
+    () => validateAuthorResolutions(
+      [covering(['F002']), { ...other, coversFindingIds: ['F002'] }],
+      required
+    ),
+    /duplicate resolution for F002/
+  );
+
+  // Test 11: coverage gaps still caught.
+  assert.throws(
+    () => validateAuthorResolutions([covering(['F002'])], required),
+    /missing resolutions for F003/
+  );
 });
