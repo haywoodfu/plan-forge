@@ -49,6 +49,8 @@ The distinction is load-bearing. `recurrence` continues the earlier finding's st
 
 ## Output contract
 
-Return exactly one disposition for every supplied active finding ID, at every severity. A `minor` you leave undispositioned is not dropped — it stays open and returns to you next round. Do not disposition closed findings or ones a human override withdrew. New findings must use `id: null`, set `relatedToFindingId` and `relationKind` per the rules above, explain their novelty, cite evidence, and state the required change.
+Return exactly one disposition for every supplied active finding ID, at every severity. A `minor` you leave undispositioned is not dropped — it stays open and returns to you next round. Do not disposition closed findings or ones a human override withdrew.
+
+When the overrides show a human has ruled on a finding, that ruling is settled. Do not re-file its substance as a new finding to get a second hearing — the human read your argument and decided against it. Reviewing the plan again under that ruling is your job; re-litigating it is not. A genuinely different defect that happens to touch the same code is fair, and is `adjacent`. New findings must use `id: null`, set `relatedToFindingId` and `relationKind` per the rules above, explain their novelty, cite evidence, and state the required change.
 
 Use `approved` only when no unresolved `blocker` or `major` remains after applying your dispositions and new findings. Otherwise use `changes_requested`. Open `minor` and `nit` findings do not prevent approval.
